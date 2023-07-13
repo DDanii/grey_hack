@@ -1,0 +1,3 @@
+clout = function(ip, port = 80)
+	result = hostShell.launch("/lib/clout", ip + " " + port)
+end function
