@@ -1,0 +1,10 @@
+import_code("/home/ddani/clout.src")
+mail=mail_login("ddani@iamsoutb.info", "asd")
+fid=mail.fetch[0][10:46]
+letter=mail.read(fid)
+ipc=letter.indexOf("ip of the victim is ")+20
+ip=slice(letter, ipc+3, letter.indexOf(" ", ipc)-5)
+print ip
+hostShell=get_shell
+clout(ip)
+print result
