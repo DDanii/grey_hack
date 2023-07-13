@@ -1,0 +1,6 @@
+import_code("/home/ddani/up.src")
+up("crypto")
+up("opadvanced")
+up("metaxploit")
+up("decipher")
+up("init")
