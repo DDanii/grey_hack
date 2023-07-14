@@ -1,4 +1,15 @@
-import_code("/home/ddani/clout.src")
+user=user_mail_address
+home_folder="/home/" + active_user
+
+file = get_shell.host_computer.File(home_folder + "/email_pass")
+
+pass = null
+
+if file != null then pass = file.get_content
+if params.len == 1 then pass = param[0]
+if pass == null then 
+	pass = get_shell.launch("/lib/decipher.dev", home_folder + "/Config/Mail.txt")
+end if
 mail=mail_login("ddani@iamsoutb.info", "asd")
 fid=mail.fetch[0][10:46]
 letter=mail.read(fid)
@@ -6,5 +17,20 @@ ipc=letter.indexOf("ip of the victim is ")+20
 ip=slice(letter, ipc+3, letter.indexOf(" ", ipc)-5)
 print ip
 hostShell=get_shell
-clout(ip)
-print result
+
+
+
+GetPassword = function(folder)
+	config_mail_path = home_folder + "/Config/Mail.txt"
+	file = get_shell.host_computer.File(home_folder + "/email_pass")
+	if not file then exit()
+	get_shell.launch("/lib/decipher.dev", home_folder + "/Config/Mail.txt")
+	cryptools = include_lib("/lib/crypto.so")
+	if not cryptools then exit("Error: Missing crypto library")
+	config_mail_path = home_folder + "/Config/Mail.txt"
+	config_mail = get_shell.host_computer.File(config_mail_path)
+	if not config_mail then exit("Error: Missing " + config_mail_path)
+	userPass = config_mail.split(":")
+	password = cryptools.decipher(userPass[1])
+	return password
+end function
