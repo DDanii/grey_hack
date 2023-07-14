@@ -6,7 +6,7 @@ file = get_shell.host_computer.File(home_folder + "/email_pass")
 pass = null
 
 if file != null then pass = file.get_content
-if params.len == 1 then pass = param[0]
+if params.len == 1 then pass = params[0]
 if pass == null then 
 	pass = get_shell.launch("/lib/decipher.dev", home_folder + "/Config/Mail.txt")
 end if
