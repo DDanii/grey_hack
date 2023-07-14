@@ -1,0 +1,42 @@
+if params.len != 4 then exit("<b>Usage: " + program_path.split("/")[-1] + " [ip_address] [port] [memory] [value]</b>")
+
+address = params[0]
+port = params[1].to_int
+memory = params[2]
+values = params[3]
+//password = params[4]
+
+metaxploit = include_lib("/lib/metaxploit.so")
+if not metaxploit then
+    metaxploit = include_lib(current_path + "/metaxploit.so")
+	if not metaxploit then
+		exit("Missing metaxploit.so!")
+	end if
+end if
+
+net_session = metaxploit.net_use( address, port )
+
+if not net_session then
+	exit("Can't connect!")
+end if
+
+metaLib = net_session.dump_lib
+result = metaLib.overflow(memory, values)
+if typeof(result) == "shell" then
+	result.start_terminal
+else if typeof(result) == "computer" then
+	file = result.File("/etc/passwd")
+	print(file.get_content)
+else if typeof(result) == "file" then
+	print(result.path)
+	if result.is_folder then
+		files = result.get_files
+	    for file in files
+       		print("File name: " + file.name)
+		end for
+	else
+		print(result.get_content)
+	end if
+else
+	print(result)
+end if

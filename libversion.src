@@ -1,0 +1,15 @@
+metaxploit = include_lib("/lib/metaxploit.so")
+if not metaxploit then
+	metaxploit = include_lib(current_path + "metaxploit.so")
+end if
+if not metaxploit then
+	exit("No metaxploit.so.")
+end if
+
+print("Target: " + params[0])
+lib = metaxploit.load(params[0])
+if not lib then
+	exit("Not Found.")
+end if
+print(lib.lib_name)
+print(lib.version)

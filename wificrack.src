@@ -1,0 +1,25 @@
+// params[0] wlan0
+cryptools = include_lib("/lib/crypto.so")
+if not cryptools then
+	cryptools = include_lib(current_path + "crypto.so")
+end if
+computer = get_shell.host_computer
+networks = computer.wifi_networks(params[0])
+for network in networks
+	filecap = get_shell.host_computer.File("file.cap")
+	if filecap then
+		filecap.delete
+	end if
+	values = network.split(" ")
+	print("BSSID: " + values[0])
+	print("ESSID: " + values[2])
+	result = cryptools.aireplay(values[0], values[2], 10000)
+	if typeof(result) == "string" then 
+		print(result)
+	else
+		key = cryptools.aircrack(filecap.path)
+		if key then
+			print("Password: " + key)
+		end if
+	end if
+end for
