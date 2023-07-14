@@ -1,3 +1,2 @@
-up = function(file)
-	remoteFtpShell.put("/lib/" + file + ".so", file + ".so", hostShell)
-end function
+if params.len != 1 then exit("<b>Usage: " + program_path.split("/")[-1] + " [library name without .so]</b>")
+get_shell.launch("scp", "-u /lib/" + param[0] + ".so file.so")
