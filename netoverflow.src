@@ -95,7 +95,7 @@ else if typeof(result) == "file" then
 
 		end if
 	else
-		if not t.is_folder then
+		if not result.is_folder then
 			print(result.get_content)
 		end if
 	end if
