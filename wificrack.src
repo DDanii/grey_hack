@@ -27,7 +27,11 @@ for d in devices
 	device = d.split(" ")
 
 	if device[2] != "True" then
-		continue
+		result = cryptools.airmon("start", device[0])
+		if not result or typeof(result) == "string" then
+			print("Error to enter monitor mode: " + result)
+			continue
+		end if
 	end if
 	
 	if params.len > 0 and params[0] != device[0] then
