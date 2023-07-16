@@ -1,25 +1,73 @@
-// params[0] wlan0
+// https://steamcommunity.com/sharedfiles/filedetails/?id=1905138308
+// 1% Wifi required 300000 acks
+
+if params.len > 0 and params[0] == "-h" or params[0] == "--help" then
+	print("<b>Usage: " + program_path.split("/")[-1] + "</b>")
+	print("<b>Usage: " + program_path.split("/")[-1] + " [device]</b>")
+	print("<b>Usage: " + program_path.split("/")[-1] + " [device] [network]</b>")
+end if
+
 cryptools = include_lib("/lib/crypto.so")
 if not cryptools then
 	cryptools = include_lib(current_path + "crypto.so")
+	if not cryptools then
+		exit("Missing crypto.so!")
+	end if
 end if
+
 computer = get_shell.host_computer
-networks = computer.wifi_networks(params[0])
-for network in networks
-	filecap = get_shell.host_computer.File("file.cap")
-	if filecap then
-		filecap.delete
+devices = computer.network_devices.split("\n")
+
+for d in devices
+
+	if d == "" then
+		continue
 	end if
-	values = network.split(" ")
-	print("BSSID: " + values[0])
-	print("ESSID: " + values[2])
-	result = cryptools.aireplay(values[0], values[2], 10000)
-	if typeof(result) == "string" then 
-		print(result)
-	else
-		key = cryptools.aircrack(filecap.path)
-		if key then
-			print("Password: " + key)
+
+	device = d.split(" ")
+
+	if device[2] != "True" then
+		continue
+	end if
+	
+	if params.len > 0 and params[0] != device[0] then
+		continue
+	end if
+	
+	print("Scanning networks on " + device[0] + " (" + device[1] +")")
+	networks = computer.wifi_networks(device[0])
+	
+	for network in networks		
+		values = network.split(" ")
+		
+		if params.len > 1 and params[1] != values[2] then
+			continue
 		end if
-	end if
+		
+		acks = round( (300000 / (values[1].replace("%","").to_int)) + 100)
+		
+		print("\nBSSID: " + values[0])
+		print("ESSID: " + values[2])
+		print("Strength: " + values[1])
+		print("Required ACKs: " + acks)
+		print()
+		
+		result = cryptools.aireplay(values[0], values[2], acks)
+		
+		if typeof(result) == "string" then 
+			print(result)
+		else
+			filecap = get_shell.host_computer.File("file.cap")
+			if filecap then
+				key = cryptools.aircrack(filecap.path)
+				if key then
+					print("Password: " + key + "\n")
+					print("iwconfig " + device[0] + " " + values[0] + " " + values[2] + " " + key)
+				end if
+				filecap.delete
+			else
+				print("No file.cap\n")
+			end if
+		end if
+	end for
 end for

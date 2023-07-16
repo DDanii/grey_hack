@@ -35,6 +35,25 @@ search = function(target, current)
 	return null
 end function
 
+print_file = function(file)
+	if file then
+		if file.is_folder then
+			folders = file.get_folders
+			for f in folders
+				print(f.name)
+			end for
+			files = file.get_files
+			for f in files
+				print(f.name)
+			end for
+		else
+			print(file.get_content)
+		end if
+	else
+		print("file is null")
+	end if	
+end function
+
 if params.len < 4 then exit("<b>Usage: " + program_path.split("/")[-1] + " [ip_address] [port] [memory] [value]</b>")
 
 address = params[0]
@@ -65,39 +84,24 @@ result = metaLib.overflow(memory, values, extra_args)
 if typeof(result) == "shell" then
 	result.start_terminal
 else if typeof(result) == "computer" then
-	file = result.File("/etc/passwd")
-	print(file.get_content)
+	if extra_args != "" then
+		file = result.File(extra_args)
+		print(extra_args)
+		print_file(file)
+	else
+		file = result.File("/etc/passwd")
+		print("/etc/passwd")
+		print(file.get_content)
+	end if
 else if typeof(result) == "file" then
 	print(result.path)
 	if extra_args != "" then
 		t = search(extra_args, result)
 		if t then
-			if t.is_folder then
-				folders = t.get_folders
-				for f in folders
-					print(f.name)
-				end for
-				files = t.get_files
-				for f in files
-					print(f.name)
-				end for
-			else
-				print(t.get_content)
-			end if
-		end if
-		if extra_args != "" then
-			
-			if t then
-				
-			end if
-		else
-			folders = result.get_folders
-
+			print_file(t)
 		end if
 	else
-		if not result.is_folder then
-			print(result.get_content)
-		end if
+		print_file(result)
 	end if
 else
 	print(result)
