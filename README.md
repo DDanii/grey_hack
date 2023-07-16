@@ -31,3 +31,11 @@ Apply exploit on the remote target.
 ```
 netoverflow [ip] [port] [memory] [value]
 ```
+
+### qcrack.src
+
+Constantly waiting for the password hash to be cracked.
+
+```
+qcrack
+```
