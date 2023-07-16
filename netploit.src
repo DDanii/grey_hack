@@ -18,6 +18,7 @@ end if
 
 metaLib = net_session.dump_lib
 regions = metaxploit.scan(metaLib)
+print(metaLib.lib_name + " " + metaLib.version)
 print(regions)
 for r in regions
 	result = metaxploit.scan_address(metaLib, r)
