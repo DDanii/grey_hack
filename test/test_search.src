@@ -1,0 +1,39 @@
+search = function(target, current)
+	level = target.split("/")
+	cursor = 0
+	while cursor < level.len
+		if level[cursor] == ".." then
+			current = current.parent
+		else
+			folders = current.get_folders
+			changed = false
+			
+			for a in folders
+				if a.name == level[cursor] then
+					if cursor + 1 >= level.len then
+						return a
+					end if
+					current = a
+					changed = true
+					break
+				end if
+			end for
+			
+			if not changed then
+				files = current.get_files
+				for b in files
+					if b.name == level[cursor] then
+						return b
+					end if
+				end for
+			end if
+			
+		end if
+		cursor = cursor + 1
+	end while
+	
+	return null
+end function
+
+file = get_shell.host_computer.File("/home")
+print(search("../etc/passwd", file))

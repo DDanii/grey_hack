@@ -1,7 +1,4 @@
-if params.len != 2 then exit("<b>Usage: " + program_path.split("/")[-1] + " [ip_address] [port]</b>")
-
-address = params[0]
-port = params[1].to_int
+if params.len == 0 or params[0] == "-h" or params[0] == "--help" then exit("<b>Usage: " + program_path.split("/")[-1] + " [ip_address|path] [port]</b>")
 
 metaxploit = include_lib("/lib/metaxploit.so")
 if not metaxploit then
@@ -11,12 +8,25 @@ if not metaxploit then
 	end if
 end if
 
-net_session = metaxploit.net_use( address, port )
-if not net_session then
-	exit("Can't connect!")
+metaLib = null
+
+if is_valid_ip(params[0]) then
+	address = params[0]
+	port = 0
+	if params.len > 1 then port = params[1].to_int
+	net_session = metaxploit.net_use( address, port )
+	
+	if not net_session then
+		exit("Can't connect!")
+	end if
+
+	metaLib = net_session.dump_lib
+else
+	metaLib = metaxploit.load(params[0])
 end if
 
-metaLib = net_session.dump_lib
+if not metaLib then exit("No lib found.")
+
 regions = metaxploit.scan(metaLib)
 print(metaLib.lib_name + " " + metaLib.version)
 print(regions)
@@ -28,11 +38,9 @@ for r in regions
 			s = line.indexOf(">") + 1
 			e = line.indexOf("<", s)
 			value = line[s:e]
-			print("netoverflow " + params[0] + " " + params[1] + " " + r + " " + value)
+			print("netoverflow " + params.join(" ") + " " + r + " " + value)
 		else if line.indexOf("*") == 0 then
 			print(line)
-		else
-			print("")
 		end if
 	end for
 end for

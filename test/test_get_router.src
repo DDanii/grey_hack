@@ -1,0 +1,16 @@
+ip = params[0]
+target = params[1]
+
+if ip == "127.0.0.1" then
+	router = get_router
+	print(router.used_ports)
+	print(router.device_ports(target))
+else if is_valid_ip(ip) and not is_lan_ip(ip) then
+	router = get_router(ip)
+	print(router.used_ports)
+	print(router.device_ports(target))
+else
+	router = get_router(ip)
+	print(router.used_ports)
+	print(router.device_ports(target))
+end if
