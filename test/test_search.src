@@ -1,6 +1,11 @@
 search = function(target, current)
 	level = target.split("/")
 	cursor = 0
+	
+	if not current.is_folder then
+		current = current.parent
+	end if
+
 	while cursor < level.len
 		if level[cursor] == ".." then
 			current = current.parent

@@ -13,4 +13,4 @@ while true
 	end if
 	password = cryptools.decipher(password_hash)
 	print("Password = " + password)
-end while	
+end while

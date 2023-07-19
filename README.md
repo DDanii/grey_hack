@@ -39,3 +39,19 @@ Constantly waiting for the password hash to be cracked.
 ```
 qcrack
 ```
+
+### files.src
+
+Search files on computers, filter and process them.
+
+```
+files -h -x cmd -l root expression
+```
+
+```
+files Mail.txt -x cat
+```
+
+```
+files Mail.txt -l /home
+```
