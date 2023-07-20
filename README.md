@@ -55,3 +55,11 @@ files Mail.txt -x cat
 ```
 files Mail.txt -l /home
 ```
+
+### decipher.src
+
+Decrypt all lines from files and print the result.
+
+```
+decipher [file|encrypted text]
+```

@@ -1,0 +1,80 @@
+if not get_shell.host_computer.is_network_active then exit("No internet access.")
+
+get_port_info = function(router, ip, reachable)
+	result = []
+    ports = router.device_ports(ip)
+    if ports and typeof(ports) != "string" then
+        for p in ports
+            pi = router.port_info(p).split(" ")
+			
+			result.push( [ ip, p.port_number, pi[0], pi[1], p.get_lan_ip() == ip, p.get_lan_ip(), reachable ] )
+        end for
+    end if
+	return result
+end function
+
+shell = get_shell
+router = get_router;
+if router == null then exit("IP address not found")
+
+detected = []
+unreachables = []
+routers = []
+access_points = [ ]
+open_ports = [ ]
+open = [ router ]
+
+while open.len > 0
+    current = open.pop()
+    
+    if detected.indexOf(current.local_ip) == null then detected.push(current.local_ip)
+
+    devices = current.devices_lan_ip()
+	reachable = shell.ping(current.local_ip)
+	open_ports = open_ports + get_port_info(current, current.local_ip, reachable)
+	
+	if not reachable then unreachables.push( current.local_ip )
+    if current.essid_name then access_points.push( current.local_ip )
+    routers.push(current.local_ip)
+
+    for d in devices
+        is_router = get_router(d)
+        if is_router and detected.indexOf(d) == null then
+            open.push(is_router)
+        else if detected.indexOf(d) == null then 
+            detected.push(d)
+
+			reachable = shell.ping(d)
+			open_ports = open_ports + get_port_info(current, d, shell.ping(d))
+			
+			if not reachable then unreachables.push( d )
+			
+        end if
+    end for
+end while
+
+print("Devices:")
+text = "IP ROUTER REACHABLE WIFI_AP\n"
+for d in detected
+	ur = "True"
+	if unreachables.indexOf(d) != null then ur = "False"
+
+    r = "False"
+    if routers.indexOf(d) != null then r = "True"
+
+    a = "False"
+    if access_points.indexOf(d) != null then a = "True"
+	
+    text = text + d + " " + r + " " + ur + " " + a + "\n"
+end for
+
+print(format_columns(text))
+print("")
+print("Open ports:")
+text = "IP PORT SERVICE VERSION REACHABLE\n"
+for p in open_ports
+	r = "True"
+	if not r then r = "False"
+	text = text + p[0] + " " + p[1] + " " + p[2] + " " + p[3] + " " + r + "\n"
+end for
+print(format_columns(text))

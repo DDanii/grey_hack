@@ -1,0 +1,44 @@
+if params.len == 0 or params[0] == "-h" or params[0] == "--help" then exit("<b>Usage: " + program_path.split("/")[-1] + " [file|encrypted text]</b>")
+
+crypto = include_lib("/lib/crypto.so")
+if not crypto then
+    crypto = include_lib(current_path + "/crypto.so")
+	if not crypto then
+		exit("Missing crypto.so!")
+	end if
+end if
+
+shell = get_shell
+file = shell.host_computer.File(params[0])
+
+passwords = []
+
+if file then
+	if file.is_binary() then exit("Cannot read binary.")
+	if not file.has_permission("r") then exit("Cannot read file.")
+
+	lines = file.get_content().split("\n")
+	for l in lines
+		data = l.split(":")
+		if data.len > 1 then
+			password = crypto.decipher(data[1])
+			if not password then password = ""
+			passwords.push(data[0] + " " + password )
+		else
+			password = crypto.decipher(data[0])
+			passwords.push(" " + password)
+		end if
+	end for
+else
+	data = params[0].split(":")
+	if data.len > 1 then 
+		password = crypto.decipher(data[1])
+		passwords.push(data[0] + " " + password)
+	else
+		password = crypto.decipher(data[0])
+		passwords.push(" " + password)
+	end if
+end if
+
+result = "USERNAME PASSWORD\n" + passwords.join("\n")
+print(format_columns(result))
