@@ -70,6 +70,5 @@ if params[0] == "load" then
 end if
 
 if params[0] == "start_terminal" then
-	print("A")
 	get_shell().start_terminal()
 end if
