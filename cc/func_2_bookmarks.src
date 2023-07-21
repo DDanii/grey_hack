@@ -1,0 +1,6 @@
+bookmark_show_status = function(context)
+	f = context.local.File(context.bookmarks)
+    count = 0
+	if f then count = f.get_content().split("\n").len
+	print("Bookmarks = " + count)
+end function

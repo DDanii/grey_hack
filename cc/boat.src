@@ -1,0 +1,75 @@
+metaxploit_lib = null
+metaxploit_path = "/lib/metaxploit.so"
+metaxploit = include_lib(metaxploit_path)
+if not metaxploit then
+	metaxploit_path = current_path + "/metaxploit.so"
+    metaxploit = include_lib(metaxploit_path)
+end if
+
+if metaxploit then
+	metaxploit_lib = metaxploit.load(metaxploit_path)
+end if
+
+if params.len == 0 or params[0] == "status" then
+	result = {}
+	result["user"] = active_user
+	result["date"] = current_date
+	result["current_path"] = current_path
+	result["program_path"] = program_path
+	result["user_bank_number"] = user_bank_number
+	result["user_mail_address"] = user_mail_address
+	result["home_dir"] = home_dir
+	result["version"] = "_BOAT_VERSION_"
+	if metaxploit_lib then 
+		result["metaxploit.so"] = metaxploit_lib.version 
+	else 
+		result["metaxploit.so"] = null
+	end if
+
+	data = get_custom_object()
+	data["result"] = result
+	exit()
+end if
+
+if params[0] == "get_router" then
+	result = null
+	
+	if params.len == 1 then result = get_router else result = get_router(params[1])
+
+	data = get_custom_object()
+	data["result"] = result
+	exit()
+end if
+
+if params[0] == "get_switch" then
+	result = null
+
+	if params.len > 1 then result = get_switch(params[1])
+
+	data = get_custom_object()
+	data["result"] = result
+	exit()
+end if
+
+if params[0] == "metaxploit" then
+	result = metaxploit
+	
+	data = get_custom_object()
+	data["result"] = result
+	exit()
+end if
+
+if params[0] == "load" then
+	result = null
+	
+	if params.len > 1 then result = metaxploit.load(params[1])
+	
+	data = get_custom_object()
+	data["result"] = result
+	exit()
+end if
+
+if params[0] == "start_terminal" then
+	print("A")
+	get_shell().start_terminal()
+end if

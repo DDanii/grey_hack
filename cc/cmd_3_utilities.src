@@ -1,0 +1,263 @@
+// utilities
+
+context.files = []
+
+cmd_file_serach = function(context, args)
+    sc = context.shell
+    
+    filter = null
+    root = "/"
+    if args.len > 1 then filter = args[1]
+    if args.len > 2 then root = args[2]
+    
+    context.files = file_search(sc, filter, root)
+    for f in context.files
+        print(f.path)
+    end for
+end function
+
+cmd_whois = function(context, args)
+    if args.len > 1 then
+        ip = args[1]
+        if ip == "-t" then ip = context.target_ip
+        if ip == "-l" then ip = context.shell.public_ip
+        result = network_whois(ip)
+        if result then print_map(result)
+    else
+        print("whois [ip|-t|-l]")
+    end if
+end function
+
+cmd_network_map = function(context, args)
+    if args.len == 1 then
+        print(args[0] + " [ip|-t]")
+        return
+    end if
+
+    ip = args[1]
+    if ip == "-t" then ip = context.target_ip 
+
+    if not is_valid_ip(ip) then 
+        print("Invalid ip address.")
+        return
+    end if
+
+    router = null
+    if is_lan_ip(ip) then
+        router = boat_launch_and_install_if_needed(context.local, context.shell, "get_router")
+    else
+        router = boat_launch_and_install_if_needed(context.local, context.shell, "get_router " + ip)
+    end if
+
+    if router == null then
+        print("IP address not found.")
+        return
+    end if
+
+    if not is_lan_ip(ip) then
+        ports = router.used_ports
+    else
+        ports = router.device_ports(ip)
+    end if
+
+    if ports == null then 
+        print("IP address not found.")
+        return
+    end if
+
+    if typeof(ports) == "string" then 
+        print(ports)
+    end if
+
+    if ports.len == 0 then
+        print("No open ports.")
+        return
+    end if
+
+    info = "PORT STATE SERVICE VERSION LAN"   
+
+    for port in ports
+        service_info = router.port_info(port)
+        lan_ips = port.get_lan_ip
+        port_status = "open"
+
+        if (port.is_closed and not is_lan_ip(ip)) then
+            port_status = "closed"
+        end if
+        info = info + "\n" + port.port_number + " " + port_status + " " + service_info + " " + lan_ips
+    end for
+    print(format_columns(info) + "\n")
+end function
+
+cmd_network_netploit = function(context, args)
+   
+    if args.len < 2 then
+        print(args[0] + " [ip_address|path] [port]</b>")
+        return
+    end if
+
+    metaxploit = boat_launch_and_install_if_needed(context.local, context.shell, "metaxploit")
+    metaLib = null
+
+    if is_valid_ip(args[1]) then
+        address = args[1]
+        port = 0
+        if args.len > 2 then port = args[2].to_int
+        net_session = metaxploit.net_use( address, port )
+        
+        if not net_session then
+            print("Can't connect!")
+            return
+        end if
+
+        metaLib = net_session.dump_lib
+    else
+        metaLib = metaxploit.load(args[1])
+    end if
+
+    if not metaLib then
+        print("No lib found.")
+        return
+    end if
+
+    metaxploit = get_local_library("metaxploit.so")
+    regions = metaxploit.scan(metaLib)
+    print(metaLib.lib_name + " " + metaLib.version)
+    print(regions)
+    for r in regions
+        result = metaxploit.scan_address(metaLib, r)
+        lines = result.split("\n")
+        for line in lines
+            if line.indexOf("Unsafe check:") == 0 then
+                s = line.indexOf(">") + 1
+                e = line.indexOf("<", s)
+                value = line[s:e]
+                print("no " + args[1:].join(" ") + " " + r + " " + value)
+            else if line.indexOf("*") == 0 then
+                print(line)
+            end if
+        end for
+    end for
+
+end function
+
+cmd_decipher = function(context, args)
+    if args.len == 1 then
+        print(args[0] + " [username:password|password|-f|path]")
+        return
+    end if
+
+    files = []
+    sources = []
+    passwords = []
+    crypto = get_local_library("crypto.so")
+
+    if args[1] == "-f" then
+        files = files + context.files
+    else if args[1][0] == "/" then
+        files.push(context.shell.File(args[1]))
+    else
+        sources.push(args[1])
+    end if
+
+    for f in files
+        if f and not f.is_binary() and not f.is_folder() then
+            lines = f.get_content().split("\n")
+            for l in lines
+                if l.len == 0 then continue
+                sources.push(l)
+            end for
+        end if
+    end for
+
+    for s in sources
+        if s.indexOf(":") >= 0 then
+            columns = s.split(":")
+			passwd = crypto.decipher(columns[1])
+			if not passwd then passwd = ""
+            passwords.push(columns[0] + " " + passwd)
+        else
+            passwords.push(" " + crypto.decipher(s))
+        end if
+    end for
+
+    result = "USERNAME PASSWORD\n" + passwords.join("\n")
+    print(format_columns(result))
+end function
+
+cmd_network_netoverflow = function(context, args)
+    if args.len < 4 then 
+        print(args[0] + " [ip_address|path] [port] [memory] [value]")
+        return
+    end if
+
+    params = args[1:]
+    metaxploit = boat_launch_and_install_if_needed(context.local, context.shell, "metaxploit")
+
+    metaLib = null
+    memory = null
+    values = null
+    extra_args = ""
+
+    if is_valid_ip(params[0]) then
+        offset = 0
+        address = params[offset + 0]
+        port = 0
+        
+        if not is_memory(params[offset + 1]) then 
+            port = params[offset + 1].to_int
+            offset = offset + 1
+        end if
+        
+        net_session = metaxploit.net_use( address, port )
+
+        if not net_session then
+             print("Can't connect!")
+             return
+        end if
+
+        metaLib = net_session.dump_lib
+        memory = params[offset + 1]
+        values = params[offset + 2]
+        if params.len > offset + 3 then extra_args = params[offset + 3]
+    else
+        metaLib = metaxploit.load(params[0])
+        memory = params[1]
+        values = params[2]
+        if params.len > 3 then extra_args = params[3]
+    end if
+
+    result = metaLib.overflow(memory, values, extra_args)
+    if typeof(result) == "shell" then
+        append_to_shell(context, result)
+    else if typeof(result) == "computer" then
+        if extra_args != "" then
+            file = result.File(extra_args)
+            print(extra_args)
+            print_file(file)
+        else
+            file = result.File("/etc/passwd")
+            print("/etc/passwd")
+            print(file.get_content)
+        end if
+    else if typeof(result) == "file" then
+        print(result.path)
+        if extra_args != "" then
+            t = relative_file(extra_args, result)
+            if t then
+                print_file(t)
+            end if
+        else
+            print_file(result)
+        end if
+    else
+        print(result)
+    end if
+end function
+
+commands.f = @cmd_file_serach
+commands.whois = @cmd_whois
+commands.nm = @cmd_network_map
+commands.d = @cmd_decipher
+commands.np = @cmd_network_netploit
+commands.no = @cmd_network_netoverflow

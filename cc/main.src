@@ -1,0 +1,29 @@
+if not boat_update_if_needed(context) then
+	exit("Missing boat.")
+end if
+
+print("CC 1.0.0")
+print("Current path = " + current_path)
+print("Current IP = " + context.local.public_ip + " (" + context.local.local_ip + ")")
+print("Exploit DB = " + context.exploits)
+boat_show_status(context.local)
+bookmark_show_status(context)
+
+while true
+	input = user_input( display_shell_info(context) + ": ")
+	
+	// press empty to repeate
+	if input.len == 0 then
+		input = context.command
+	end if
+
+	context.command = input
+	if not input then continue
+
+	args = input.split(" ")
+	if args.len > 0 and commands.hasIndex(args[0]) then
+		commands[args[0]](context, args)
+	else
+		cmd_fallback(context, args)
+	end if
+end while

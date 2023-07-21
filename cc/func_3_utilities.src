@@ -1,0 +1,97 @@
+file_search = function(shell, filter = null, root = "/")
+	result = []
+	folders = [shell.File(root)]
+	while folders.len > 0
+		current = folders.pop()
+		folders = folders + current.get_folders()
+		if filter then
+			for f in current.get_files()
+				if f.path.indexOf(filter) >= 0 then
+					result.push(f)
+				end if
+			end for
+		else
+			result = result + current.get_files()
+		end if
+	end while
+	return result
+end function
+
+network_whois = function(ip)
+	if is_valid_ip(ip) and not is_lan_ip(ip) then
+		result = { "Public IP": ip}
+		response = whois(ip)
+		lines = response.split("\n")
+		for l in lines
+			kv = l.split(": ")
+			result[kv[0]] = kv[1]
+		end for
+		return result
+	end if
+	return null
+end function
+
+is_memory = function(v)
+	if v then return v.indexOf("0x") == 0 else return false
+end function
+
+relative_file = function(target, current)
+	level = target.split("/")
+	cursor = 0
+	
+	if not current.is_folder then
+		current = current.parent
+	end if
+
+	while cursor < level.len
+		if level[cursor] == ".." then
+			current = current.parent
+		else
+			folders = current.get_folders
+			changed = false
+			
+			for a in folders
+				if a.name == level[cursor] then
+					if cursor + 1 >= level.len then
+						return a
+					end if
+					current = a
+					changed = true
+					break
+				end if
+			end for
+			
+			if not changed then
+				files = current.get_files
+				for b in files
+					if b.name == level[cursor] then
+						return b
+					end if
+				end for
+			end if
+			
+		end if
+		cursor = cursor + 1
+	end while
+	
+	return null
+end function
+
+print_file = function(file)
+	if file then
+		if file.is_folder then
+			folders = file.get_folders
+			for f in folders
+				print(f.name)
+			end for
+			files = file.get_files
+			for f in files
+				print(f.name)
+			end for
+		else
+			print(file.get_content)
+		end if
+	else
+		print("file is null")
+	end if	
+end function

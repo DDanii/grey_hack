@@ -1,0 +1,66 @@
+// bookmarks for bouncing and quick connect
+
+context.bookmarks = parent_path(program_path) + "/bookmarks.txt"
+
+cmd_bookmark_add = function(context, args)
+    
+    if args.len == 1 then
+        print(args[0] + " [ip] [port] [username] [password]")
+        return
+    end if
+
+    if args.len < 5 then
+        print("Invalid arguments.")
+        return
+    end if
+
+    record = args[1] + " " + args[2] + " " + args[3] + " " + args[4]
+
+    f = context.local.File(context.bookmarks)
+    if f then
+        f.set_content( f.get_content() + char(10) + record)
+    else
+        context.local.write_file(context.bookmarks, record)
+    end if
+end function
+
+cmd_bookmark_list = function(context, args)
+    f = context.local.File(context.bookmarks)
+	if not f then return
+    rows = f.get_content().split("\n")
+    index = 0
+    for l in rows
+        columns = l.split(" ")
+        print(index + ": " +  columns[2] + "@" + columns[3] + " " + columns[0] + " " + columns[1])
+        index = index + 1
+    end for
+end function
+
+cmd_bookmark_connect = function(context, args)
+    if args.len < 2 then
+        print(args[0] + " [index]")
+        return
+    end if
+    
+    f = context.local.File(context.bookmarks)
+
+    if not f then
+        print("No Bookmarks.")
+        return
+    end if
+
+    cursor = args[1].to_int
+    rows = f.get_content().split("\n")
+    
+    if cursor >= rows.len then
+        print("Invalid parameter.")
+        return
+    end if
+
+    columns = rows[cursor].split(" ")
+    connect_to_shell(context, columns[0], columns[1], columns[2], columns[3])
+end function
+
+commands.ba = @cmd_bookmark_add
+commands.bl = @cmd_bookmark_list
+commands.bc = @cmd_bookmark_connect

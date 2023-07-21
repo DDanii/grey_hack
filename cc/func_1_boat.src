@@ -1,0 +1,77 @@
+boat_install = function(sourceShell, targetShell)
+	sourceShell.shell.scp(sourceShell.boat_path, parent_path(targetShell.boat_path), targetShell.shell)
+	sourceShell.shell.scp(get_local_library_path("metaxploit.so"), parent_path(targetShell.boat_path), targetShell.shell)
+end function
+
+boat_launch = function(shell, params)
+	get_custom_object()["result"] = null
+	shell.launch(shell.boat_path, params)
+	return get_custom_object()["result"]
+end function
+
+boat_compile = function(context)
+    f = context.local.write_file(current_path + "/boat.src", boat_script_source)
+    if f then
+        return context.local.shell.build(f.path, parent_path(f.path)) == ""
+    end if
+    return false
+end function
+
+boat_install_if_needed = function(ss, ts)
+    sboat = ss.File(ss.boat_path)
+    tboat = ts.File(ts.boat_path)
+    install_required = true
+
+    if sboat and tboat then
+        sinfo = boat_launch(ss, "status")
+        tinfo = boat_launch(ts, "status")
+
+        install_required = not (sinfo and tinfo and sinfo.hasIndex("version") and sinfo.hasIndex("metaxploit.so") and tinfo.hasIndex("version") and tinfo.hasIndex("metaxploit.so") and sinfo["version"] == tinfo["version"] and sinfo["metaxploit.so"] == tinfo["metaxploit.so"])
+    end if
+        
+    if install_required then
+        boat_install(ss, ts)
+    end if
+end function
+
+boat_launch_and_install_if_needed = function(ss, ts, params = "")
+    boat_install_if_needed(ss, ts)
+    return boat_launch(ts, params)
+end function
+
+boat_update_if_needed = function(context)
+    p = context.local.File(current_path + "/boat")
+    status = null
+
+    if p then
+        status = boat_launch(context.local, "status")
+        if not status or status["version"] != boat_script_version then p = null
+    end if
+
+    if not p then
+        status = null
+        boat_compile(context)
+        p = context.local.File(current_path + "/boat")
+        if p then
+            status = boat_launch(context.local, "status")
+        end if
+    end if
+
+    return context.local.File(current_path + "/boat")
+end function
+
+boat_show_status = function(shell)
+    status = boat_launch(shell, "status")
+    if status then
+        print("Boat = " + status["version"] + " (metaxploit.so =" + status["metaxploit.so"] + ")")
+    else
+        print("Boat: unknow")
+    end if
+end function
+
+// START OF BOAT SCRIPT
+
+boat_script_version = "_BOAT_VERSION_"
+boat_script_source = "THIS_IS_BOAT_SCRIPT_SOURCE"
+
+// END OF BOAT SCRIPT

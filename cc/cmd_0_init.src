@@ -1,0 +1,75 @@
+// shell switching commands and fallback
+
+context = create_context()
+context.local = push_shell_to_context(context, get_shell(), null, true)
+commands = { }
+
+cmd_shell_home = function(context, args)
+    context.current = 0
+end function
+
+cmd_shell_down = function(context, args)
+    if context.current > 0 then
+        context.current = context.current - 1
+    end if
+end function
+
+cmd_shell_up = function(context, args)
+    if context.current + 1 < context.sessions.len then
+        context.current = context.current + 1
+    end if
+end function
+
+cmd_shell_list = function(context, args)
+    index = 0
+    text = "INDEX PUBLIC_IP LOCAL_IP CURRENT_DIRECTORY"
+    for s in context.sessions
+        text = text + "\n" + index + " " + s.public_ip + " " + s.local_ip + " "
+        index = index + 1
+    end for
+    print(format_columns(text))
+end function
+
+cmd_shell_switch = function(context, args)
+    if args.len < 2 then
+        print(args[0] + " [index]")
+        return
+    end if
+    i = args[1].to_int
+    if i < context.sessions.len then
+        context.current = i
+    end if
+end function
+
+cmd_shell_connect = function(context, args)
+    if args.len >= 5 then
+        connect_to_shell(context, args[1], args[2], args[3], args[4])
+    else
+        print("connect [ip] [port] [user] [password]")
+    end if
+end function
+
+cmd_shell_help = function(context, args)
+    print("Commands:")
+    for k in globals.commands.indexes
+        print(k)
+    end for
+end function
+
+cmd_fallback = function(context, args)
+    sc = context.shell
+    parameters = ""
+    if args.len > 1 then parameters = args[1:].join(" ")
+    bin = sc.File(args[0])
+    if not bin then bin = sc.File("/bin/" + args[0])
+    if not bin then bin = sc.File("/usr/bin/" + args[0])
+	if not bin then sc.launch(args[0], parameters) else sc.launch(bin.path, parameters)
+end function
+
+commands.h = @cmd_shell_home
+commands.w = @cmd_shell_down
+commands.s = @cmd_shell_up
+commands.c = @cmd_shell_connect
+commands.sl = @cmd_shell_list
+commands.sw = @cmd_shell_switch
+commands.cmds = @cmd_shell_help

@@ -1,0 +1,106 @@
+create_context = function()
+    ctx = {
+        "local": null,
+        "sessions": [],
+        "current": -1,
+        "command": null,
+    }
+    ctx.shell = function()
+	    return self.sessions[self.current]
+    end function
+    return ctx;
+end function
+
+create_shell_context = function(shell, parent = null, is_local = false)
+    if not shell then return null
+
+    result = {}
+    result.shell = shell
+    result.shells = []
+    result.parent = null
+    result.current_path = null
+    result.is_local = is_local
+
+    result.boat_path = "/home/guest/boat"
+    if is_local then result.boat_path = current_path + "/boat"
+    
+    result.public_ip = function()
+        return self.shell.host_computer.public_ip
+    end function
+    result.local_ip = function()
+        return self.shell.host_computer.local_ip
+    end function
+    result.host_computer = function()
+        return self.shell.host_computer
+    end function
+    result.connect_service = function(ip, port, user, pass, service)
+        return self.shell.connect_service(ip, port, user, pass, service)
+    end function
+    result.File = function(path)
+        return self.shell.host_computer.File(path)
+    end function
+    result.launch = function(program, params = "")
+        return self.shell.launch(program, params)
+    end function
+    result.write_file = function(path, content)
+        pp = parent_path(path)
+        fn = path.split("/")[-1]
+        self.shell.host_computer.touch(pp, fn)
+        f = self.shell.host_computer.File(path)
+        if f then f.set_content(content)
+        return f
+    end function
+
+    if parent then
+        result.parent = parent
+        parent.shells.push(result)
+    end if
+
+    return result
+end function
+
+push_shell_to_context = function(context, shell, parent = null, is_local = false)
+    s = create_shell_context(shell, parent, is_local)
+    context.sessions.push(s)
+    context.current = context.current + 1
+    return s
+end function
+
+connect_to_shell = function(context, ip, port, user, password)
+    shell = context.shell.connect_service(ip, port.to_int, user, password, "ssh")
+    if typeof(shell) == "shell" then
+        push_shell_to_context(context, shell, context.shell, false)
+    else
+        print(shell)
+    end if
+end function
+
+append_to_shell = function(context, shell)
+    if shell and typeof(shell) == "shell" then
+        push_shell_to_context(context, shell, context.shell, false)
+    end if
+end function
+
+display_shell_info = function(context)
+    c = context.shell
+    return "\n>" + c.public_ip + "@" + c.local_ip
+end function
+
+get_local_library = function(name)
+    return include_lib(get_local_library_path(name))
+end function
+
+get_local_library_path = function(name)
+	ps = [name, "/lib/" + name, current_path + "/" + name]
+	for p in ps
+		lib = include_lib(p)
+		if lib then return p
+	end for
+	return null
+end function
+
+print_map = function(map)
+	for k in map.indexes
+		print(k + ": " + map[k])
+	end for
+end function

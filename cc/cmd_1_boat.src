@@ -1,0 +1,7 @@
+cmd_boat_launch = function(context, args)
+    parameters = ""
+    if args.len > 1 then parameters = args[1]
+    boat_launch_and_install_if_needed(context.local, context.shell, parameters)
+end function
+
+commands.b = @cmd_boat_launch
