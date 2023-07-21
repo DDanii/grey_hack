@@ -5,7 +5,7 @@
 Show the version number for specified library.
 
 ```
-libversion [file path]
+libversion <file path>
 ```
 
 ### wificrack.src
@@ -13,7 +13,7 @@ libversion [file path]
 Crack available wifi one by one.
 
 ```
-wificrack wlan0
+wificrack <device>
 ```
 
 ### netploit.src
@@ -21,7 +21,7 @@ wificrack wlan0
 Scan the remote target for vulnerabilities.
 
 ```
-netploit [ip] [port]
+netploit <ip [port] | path>
 ```
 
 ### netoverflow.src
@@ -29,7 +29,7 @@ netploit [ip] [port]
 Apply exploit on the remote target.
 
 ```
-netoverflow [ip] [port] [memory] [value]
+netoverflow <ip [port] | path> <memory> <value> [extra_args]
 ```
 
 ### qcrack.src
@@ -45,7 +45,7 @@ qcrack
 Search files on computers, filter and process them.
 
 ```
-files -h -x cmd -l root expression
+files [-h] [-x cmd] [-l root] [expression]
 ```
 
 ```
@@ -61,5 +61,5 @@ files Mail.txt -l /home
 Decrypt all lines from files and print the result.
 
 ```
-decipher [file|encrypted text]
+decipher < file | encrypted text>
 ```
