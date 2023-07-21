@@ -1,57 +1,136 @@
 if not get_shell.host_computer.is_network_active then exit("No internet access.")
 
-get_port_info = function(router, ip, reachable)
+get_port_info = function(router, ip, reachable, public = false)
 	result = []
-    ports = router.device_ports(ip)
+    if public then ports = router.used_ports else ports = router.device_ports(ip)
     if ports and typeof(ports) != "string" then
         for p in ports
             pi = router.port_info(p).split(" ")
-			
 			result.push( [ ip, p.port_number, pi[0], pi[1], p.get_lan_ip() == ip, p.get_lan_ip(), reachable ] )
         end for
     end if
 	return result
 end function
 
-shell = get_shell
-router = get_router;
-if router == null then exit("IP address not found")
+network_whois = function(ip)
+	if is_valid_ip(ip) and not is_lan_ip(ip) then
+		result = { "Public IP": ip}
+		response = whois(ip)
+		lines = response.split("\n")
+		for l in lines
+			kv = l.split(": ")
+			result[kv[0]] = kv[1]
+		end for
+		return result
+	end if
+	return null
+end function
 
+shell = get_shell
 detected = []
 unreachables = []
 routers = []
 access_points = [ ]
 open_ports = [ ]
-open = [ router ]
+firewall_rules = { }
+whois_info = null
 
-while open.len > 0
-    current = open.pop()
-    
-    if detected.indexOf(current.local_ip) == null then detected.push(current.local_ip)
+if params.len > 0 and not is_valid_ip(params[0]) then exit("Invalid parameter")
 
-    devices = current.devices_lan_ip()
-	reachable = shell.ping(current.local_ip)
-	open_ports = open_ports + get_port_info(current, current.local_ip, reachable)
-	
-	if not reachable then unreachables.push( current.local_ip )
+if params.len > 0 and is_lan_ip(params[0]) then
+
+    // search open port on local device
+
+    ip = params[0]
+    current = get_router( ip )
+    if current == null then exit("IP address not found")
+
+    whois_info = network_whois(current.public_ip)
+
+    reachable = shell.ping(current.local_ip)
+    open_ports = open_ports + [[current.local_ip, 0, "kernel_router", current.kernel_version, true, current.local_ip, reachable]]
+    open_ports = open_ports + get_port_info(current, current.local_ip, reachable)
+    if not reachable then unreachables.push( current.local_ip )
     if current.essid_name then access_points.push( current.local_ip )
+    if typeof(current.firewall_rules) == "list" then firewall_rules[current.local_ip] = current.firewall_rules
     routers.push(current.local_ip)
+	detected.push(current.local_ip)
 
-    for d in devices
-        is_router = get_router(d)
-        if is_router and detected.indexOf(d) == null then
-            open.push(is_router)
-        else if detected.indexOf(d) == null then 
-            detected.push(d)
+else if params.len > 0 and not is_lan_ip(params[0]) then
 
-			reachable = shell.ping(d)
-			open_ports = open_ports + get_port_info(current, d, shell.ping(d))
-			
-			if not reachable then unreachables.push( d )
-			
-        end if
-    end for
-end while
+    // search open port on public device
+
+    ip = params[0]
+    current = get_router(ip)
+    if current == null then exit("IP address not found")
+
+    whois_info = network_whois(current.public_ip)
+
+    reachable = shell.ping(current.public_ip)
+    open_ports = open_ports + [[current.local_ip, 0, "kernel_router", current.kernel_version, true, current.local_ip, reachable]]
+    open_ports = open_ports + get_port_info(current, current.local_ip, reachable, true)
+    if not reachable then unreachables.push( current.local_ip )
+    if current.essid_name then access_points.push( current.local_ip )
+    if typeof(current.firewall_rules) == "list" then firewall_rules[current.public_ip] = current.firewall_rules
+    routers.push(current.local_ip)
+	detected.push(current.local_ip)
+	
+else
+
+    // search devices on local network and open ports
+
+    open = [ get_router() ]
+
+    if open.len > 0 then whois_info = network_whois(open[0].public_ip)
+
+    while open.len > 0
+        current = open.pop()
+
+        if not current then continue
+        
+        if detected.indexOf(current.local_ip) == null then detected.push(current.local_ip)
+
+        devices = current.devices_lan_ip()
+        reachable = shell.ping(current.local_ip)
+        open_ports = open_ports + [[current.local_ip, 0, "kernel_router", current.kernel_version, true, current.local_ip, reachable]]
+        open_ports = open_ports + get_port_info(current, current.local_ip, reachable)
+        
+        if not reachable then unreachables.push( current.local_ip )
+        if current.essid_name then access_points.push( current.local_ip )
+        if typeof(current.firewall_rules) == "list" then firewall_rules[current.local_ip] = current.firewall_rules
+        routers.push(current.local_ip)
+
+        for d in devices
+            is_router = get_router(d)
+            if is_router and detected.indexOf(d) == null then
+                open.push(is_router)
+            else if detected.indexOf(d) == null then 
+                detected.push(d)
+
+                reachable = shell.ping(d)
+                open_ports = open_ports + get_port_info(current, d, shell.ping(d))
+                
+                if not reachable then unreachables.push( d )
+                
+            end if
+        end for
+    end while
+end if
+
+print()
+if whois_info then
+	longest_key = 0
+	for k in whois_info.indexes
+		if longest_key < k.len then longest_key = k.len
+	end for
+
+    text = ("KEY" + (" " * (longest_key - 3) )) + "  VALUE"
+    for k in whois_info.indexes
+        text = text + "\n" + k + (" " * (longest_key - k.len)) + "  " + whois_info[k]
+	end for
+    print(text)
+	print()
+end if
 
 print("Devices:")
 text = "IP ROUTER REACHABLE WIFI_AP\n"
@@ -71,10 +150,26 @@ end for
 print(format_columns(text))
 print("")
 print("Open ports:")
-text = "IP PORT SERVICE VERSION REACHABLE\n"
+text = "IP PORT SERVICE VERSION REACHABLE FORWARDED\n"
 for p in open_ports
 	r = "True"
-	if not r then r = "False"
-	text = text + p[0] + " " + p[1] + " " + p[2] + " " + p[3] + " " + r + "\n"
+	if not p[6] then r = "False"
+	f = ""
+	if not p[4] then f = p[5]
+	text = text + p[0] + " " + p[1] + " " + p[2] + " " + p[3] + " " + r + " " + f + "\n"
 end for
 print(format_columns(text))
+
+
+print("")
+print("Firewall rules:")
+for k in firewall_rules
+    if k.value.len > 0 then        
+        print(k.key)
+        text = "Action Port Source Destination"
+        for r in k.value
+            text = text + "\n" + r
+        end for
+        print(format_columns(text))
+    end if
+end for
