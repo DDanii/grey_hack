@@ -1,9 +1,12 @@
-get_files = function(shell, root, filter = null)
+get_files = function(shell, root, filter = null, fo = false)
 	result = []
 	folders = [root]
 	while folders.len > 0
 		current = folders.pop()
 		folders = folders + current.get_folders()
+		
+		if fo and (filter == null or f.path.indexOf(filter) >= 0) then result.push(current)
+
 		if filter then
 			for f in current.get_files()
 				if f.path.indexOf(filter) >= 0 then
@@ -52,6 +55,8 @@ execute = null
 offset = 0
 shell = get_shell()
 readable = false
+permissions = false
+include_folder = false
 root = shell.host_computer.File("/")
 
 cursor = 0
@@ -72,6 +77,10 @@ while cursor < params.len
 		cursor = cursor + 1
     else if p == "-r" then
         readable = true
+	else if p == "-p" then
+		permissions = true
+    else if p == "-fo" then
+		include_folder = true
     else
         filter = p
 	end if
@@ -79,13 +88,21 @@ while cursor < params.len
 	cursor = cursor + 1
 end while
 
-files = get_files(shell, root, filter)
+files = get_files(shell, root, filter, include_folder)
+if permissions then
+	output = "USER GROUP PERMISSIONS B F PATH"
+	for f in files
+		output = output + "\n" + (f.owner + " " + f.group + " " + f.permissions + " " + f.is_binary + " " + f.is_folder + " " + f.path)
+	end for
+	print(format_columns(output))
+else
 for f in files
     if readable and not f.has_permission("r") then continue
 
     if execute then 
         shell.launch(execute, f.path)
-    else
-        print(f.path)
+    else		
+		print(f.path)
     end if
 end for
+end if
