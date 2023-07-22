@@ -2,27 +2,19 @@
 // 1% Wifi required 300000 acks
 
 if params.len > 0 and params[0] == "-h" or params[0] == "--help" then
-	print("<b>Usage: " + program_path.split("/")[-1] + "</b>")
-	print("<b>Usage: " + program_path.split("/")[-1] + " [device]</b>")
-	print("<b>Usage: " + program_path.split("/")[-1] + " [device] [network]</b>")
+	print("<b>Usage: " + program_path.split("/")[-1] + "([device] (network))</b>")
 end if
 
 cryptools = include_lib("/lib/crypto.so")
-if not cryptools then
-	cryptools = include_lib(current_path + "crypto.so")
-	if not cryptools then
-		exit("Missing crypto.so!")
-	end if
-end if
+if not cryptools then cryptools = include_lib(current_path + "crypto.so")
+if not cryptools then exit("Missing crypto.so!")
 
-computer = get_shell.host_computer
+computer = get_shell().host_computer
 devices = computer.network_devices.split("\n")
 
 for d in devices
 
-	if d == "" then
-		continue
-	end if
+	if d == "" then continue
 
 	device = d.split(" ")
 
@@ -61,14 +53,14 @@ for d in devices
 		if typeof(result) == "string" then 
 			print(result)
 		else
-			filecap = get_shell.host_computer.File("file.cap")
+			filecap = computer.File("file.cap")
 			if filecap then
 				key = cryptools.aircrack(filecap.path)
 				if key then
 					print("Password: " + key + "\n")
 					print("iwconfig " + device[0] + " " + values[0] + " " + values[2] + " " + key)
 				end if
-				filecap.delete
+				filecap.delete()
 			else
 				print("No file.cap\n")
 			end if

@@ -18,17 +18,18 @@ get_files = function(shell, root, filter = null)
 end function
 
 get_executable = function(shell, cmd)
+	cmp = shell.host_computer
 	if cmd then
-		f = shell.host_computer.File(cmd)
+		f = cmp.File(cmd)
 		if f then return f.path
 		
-		f = shell.host_computer.File(current_path + "/" + cmd)
+		f = cmp.File(current_path + "/" + cmd)
 		if f then return f.path
 		
-		f = shell.host_computer.File("/bin/" + cmd)
+		f = cmp.File("/bin/" + cmd)
 		if f then return f.path
 		
-		f = shell.host_computer.File("/usr/bin/" + cmd)
+		f = cmp.File("/usr/bin/" + cmd)
 		if f then return f.path
 		
 	end if
