@@ -1,13 +1,13 @@
 decrypt = function(crypto, encrypted)
     passwords = []
-    output = "USERNAME PASSWORD"
+    output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
 
     for e in encrypted
         data = e.split(":")
-        if data.len > 1 then 
+        if data.len > 1 then
             data[1] = crypto.decipher(data[1])
             passwords.push(data.join(":"))
-            output = output + "\n" + data[0] + " " + data[1]
+            output = output + "\n" + (data.join(" "))
         else
             data[0] = crypto.decipher(data[0])
             passwords.push(data.join(":"))
@@ -15,7 +15,7 @@ decrypt = function(crypto, encrypted)
         end if
     end for
     
-    print(format_columns(output))
+    log_append(format_columns(output))
 
     return passwords
 end function

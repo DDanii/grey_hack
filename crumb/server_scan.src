@@ -4,12 +4,12 @@ scan_db_entry = function(shell, database, lib_name, lib_version)
     return path
 end function
 
-scan_create_database = function(shell, database)
+scan_setup = function(shell, database)
     f = shell.host_computer.File(database)
     if not f then mkdir(shell, database)
     f = shell.host_computer.File(database)
     if not f then
-        print("Exploit database cannot created.")
+        exit("Exploit database cannot created.")
     else
         print("Exploit database exists.")
     end if
@@ -19,7 +19,7 @@ scan = function(metaxploit, metaLib, args)
     vulns = []
     if metaLib then
         regions = metaxploit.scan(metaLib)
-        print(metaLib.lib_name + " " + metaLib.version)
+        log_append(metaLib.lib_name + " " + metaLib.version)
         for r in regions
             result = metaxploit.scan_address(metaLib, r)
             lines = result.split("\n")
@@ -29,10 +29,10 @@ scan = function(metaxploit, metaLib, args)
                     e = line.indexOf("<", s)
                     value = line[s:e]
                     vulns.push(r + " " + value)
-                    print("<b>payload overflow " + args.join(" ") + " " + r + " " + value + "</b>")
+                    log_append("<b>payload overflow " + args.join(" ") + " " + r + " " + value + "</b>")
                 else if line.indexOf("*") == 0 then
                     vulns.push(line)
-                    print(line)
+                    log_append(line)
                 end if
             end for
         end for
@@ -82,7 +82,7 @@ scan_exploits_append = function(lsh, database, metaLib, vulns)
 
     output = stored.join(char(10))
 	f.set_content(output)
-    print("Appended = " + added)
+    log_append("Appended = " + added)
     return added
 end function
 
@@ -127,7 +127,7 @@ exploit_db_facade = function(sh, payload, database, args, lsh)
         index = index + 2
 
         path = scan_db_entry(lsh, database, lib_name, lib_version)
-        print("Requested = " + lib_name + " " + lib_version)
+        log_append("Requested = " + lib_name + " " + lib_version)
         f = lsh.host_computer.File(path)
 
         if f then
@@ -183,6 +183,6 @@ exploit_db_update_facade = function(sh, payload, database, args, lsh)
     if updated then
         output = stored.join(char(10))
         f.set_content(output)
-        print("Entry updated = " + args.join(" "))
+        log_append("Entry updated = " + args.join(" "))
     end if
 end function

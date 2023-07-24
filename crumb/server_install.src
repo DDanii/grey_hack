@@ -1,6 +1,37 @@
+rsshd_installer_jump = function(shell)
+    shell_script = [
+        "result1 = include_lib(""/lib/librshell.so"")",
+        "result2 = include_lib(""/lib/metaxploit.so"")",
+        "goc = get_custom_object()",
+        "goc.librshell = result1",
+        "goc.metaxploit = result2"]
+
+    program = "/home/guest/lr"
+    source = program + ".src"
+    f = shell.host_computer.File(program)
+    if not f then
+        shell.host_computer.touch(parent_path(source), source.split("/")[-1])
+        f = shell.host_computer.File(source)
+        if not f then return null
+        f.set_content(shell_script.join(char(10)))
+        error = shell.build(source, parent_path(source))
+        f.set_content("")
+        f.move(parent_path(f.path), ".null")
+        if not error then 
+            print(error)
+            return null
+        end if
+    end if
+
+    goc = get_custom_object()
+    shell.launch(program)
+    return goc
+
+end function
+
 rsshd_installer = function(sh, payload, repo)
 
-    rshelld = remote_launch(sh, payload, "include librshell.so")
+    rshelld = rsshd_installer_jump(sh).librshell
 
     if not rshelld then
         sh.launch("/bin/apt-get", "update")
@@ -9,57 +40,19 @@ rsshd_installer = function(sh, payload, repo)
         sh.launch("/bin/apt-get", "install librshell.so")
         sh.launch("/bin/apt-get", "delrepo " + repo)
         sh.launch("/bin/apt-get", "update")
-        rshelld = remote_launch(sh, payload, "include librshell.so")
+        rshelld = rsshd_installer_jump(sh).librshell
     end if
 
     if not rshelld then exit("Error: Missing librshell.so library in the /lib path or the current folder")
     
-    output = rshelld.install_service
-    if output != true then exit(output)
-    
-    output = rshelld.start_service
-    // what if already running?
-    // if output != true then exit(output)
+    output = rshelld.start_service()
 
     return rshelld
-end function
-
-payload_installer = function(source, target, payload)
-    print("Install payload...")
-    source.scp(payload, parent_path(payload), target)
-    
-    print("Install dependencies...")
-    f = source.host_computer.File(parent_path(payload) + "/metaxploit.so")
-    if not f then f = source.host_computer.File("/lib/metaxploit.so")
-    if not f then exit("Can't find metaxploit on source (" + source.host_computer.public_ip + ").")
-    source.scp(f.path, parent_path(payload), target)
-end function
-
-payload_install_if_needed = function(source, target, payload)
-    f = target.host_computer.File(payload)
-    if f then
-        s1 = remote_launch(source, payload, "status")
-        s2 = remote_launch(target, payload, "status")
-
-        if not (s1 and s2 and s1.hasIndex("version") and s2.hasIndex("version") and s1["version"] == s2["version"] and s1.hasIndex("metaxploit") and s2.hasIndex("metaxploit") and s1["metaxploit"] == s2["metaxploit"]) then
-            f = null
-        end if
-    end if
-
-    if not f then
-        payload_installer(source, target, payload)
-        f = target.host_computer.File(payload)
-    end if
-
-    return f
 end function
 
 connect_to_bounce = function(stack, payload, ip, port, user, pass)
     rsh = stack[-1].connect_service(ip, port.to_int, user, pass, "ssh")
     if typeof(rsh) == "string" then exit("Can't connect to " + ip + "(" + rsh + ").") else stack.push(rsh)
-
-    // f = payload_install_if_needed(stack[-2], stack[-1], payload)
-    // if not f then exit("Can't install payload on " + ip + ".")
 end function
 
 connect_to_bounces = function(stack, payload, file)

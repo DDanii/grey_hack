@@ -4,7 +4,7 @@ import re
 
 source_directory = os.path.join(os.path.dirname(__file__), "..")
 
-sources = ["server_shared.src", "server_install.src", "server_decrypt.src", "server_scan.src", "server_main.src"]
+sources = ["server_shared.src", "server_log.src", "server_install.src", "server_decrypt.src", "server_scan.src", "server_main.src"]
 
 contents = ""
 lines = []

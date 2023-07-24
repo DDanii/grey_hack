@@ -3,6 +3,7 @@ tasks = "/home/guest/tasks.txt"
 payload = "/home/guest/payload"
 uploads = "/home/guest/Downloads"
 exploits = "/home/guest/E"
+logs = "/home/guest/L/test.txt"
 bounce_file = parent_path(program_path) + "/bounce.txt"
 stack = [get_shell()]
 repository_ip = get_repo_address(stack[-1])
@@ -30,8 +31,10 @@ print("Connections = " + (stack.len - 1))
 // Last connect is my rshell server
 server = stack[-1]
 rs = rsshd_installer(server, payload, repository_ip)
-rmx = remote_launch(server, payload, "metaxploit")
-scan_create_database(stack[0], exploits)
+rmx = rsshd_installer_jump(server).metaxploit
+
+log_setup(stack[0], logs)
+scan_setup(stack[0], exploits)
 
 print("Waiting new commands...")
 while true
@@ -39,8 +42,7 @@ while true
 	if typeof(shells) == "string" then exit(shells)
 	
 	for sh in shells
-		// print("Connected from IP: " + sh.host_computer.public_ip + " ( " + sh.host_computer.local_ip + " )")
-		// payload_install_if_needed(server, sh, payload)
+		log_append("Connected from IP: " + sh.host_computer.public_ip + " ( " + sh.host_computer.local_ip + " )", true)
 
 		f = sh.host_computer.File(tasks)
 		if f then

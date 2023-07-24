@@ -5,10 +5,6 @@ remote_launch = function(sh, payload, parameter)
 	return gco.result
 end function
 
-is_public_ip = function(ip)
-    return is_valid_ip(ip) and not is_lan_ip(ip)
-end function
-
 is_file_path = function(v)
 	if v and v[0] == "/" then return true
 	return false
