@@ -1,0 +1,76 @@
+clear_screen()
+tasks = "/home/guest/tasks.txt"
+payload = "/home/guest/payload"
+uploads = "/home/guest/Downloads"
+exploits = "/home/guest/E"
+bounce_file = parent_path(program_path) + "/bounce.txt"
+stack = [get_shell()]
+repository_ip = get_repo_address(stack[-1])
+
+crypto = include_lib("/lib/crypto.so")
+if not crypto then crypto = include_lib(current_path + "/crypto.so")
+if not crypto then exit("Error: Can't find crypto library in the /lib path or the current folder")
+
+metaxploit = include_lib("/lib/metaxploit.so")
+if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+if not stack[-1].host_computer.File(payload) then exit("Can't find payload.")
+
+if params.len > 0 then bounce_file = params[0]
+if not stack[0].host_computer.File(bounce_file) then exit("Can't find connections file.")
+
+print("Repository = " + repository_ip[:5])
+print("Connections from " + bounce_file)
+connect_to_bounces(stack, payload, bounce_file)
+
+if stack.len == 1 then exit("Stack is empty.")
+print("Connections = " + (stack.len - 1))
+
+// Last connect is my rshell server
+server = stack[-1]
+rs = rsshd_installer(server, payload, repository_ip)
+rmx = remote_launch(server, payload, "metaxploit")
+scan_create_database(stack[0], exploits)
+
+print("Waiting new commands...")
+while true
+	shells = rmx.rshell_server
+	if typeof(shells) == "string" then exit(shells)
+	
+	for sh in shells
+		// print("Connected from IP: " + sh.host_computer.public_ip + " ( " + sh.host_computer.local_ip + " )")
+		// payload_install_if_needed(server, sh, payload)
+
+		f = sh.host_computer.File(tasks)
+		if f then
+			content = f.get_content()
+			remote_launch(sh, payload, "task clear")
+
+			ts = content.split("\n")
+			for t in ts
+				tp = t.split(" ")
+				if tp[0] == "scan" then
+                    scan_facade(metaxploit, sh, payload, exploits, tp[1:], stack[0])
+				else if tp[0] == "decrypt" and tp.len > 1 then
+                    decrypt_facade(crypto, sh, payload, tp[1:])
+				else if tp[0] == "db" and tp.len > 1 then
+					exploit_db_facade(sh, payload, exploits, tp[1:], stack[0])
+				else if tp[0] == "dbu" and tp.len > 1 then
+					exploit_db_update_facade(sh, payload, exploits, tp[1:], stack[0])
+				else if tp[0] == "signal" and tp.len > 1 then
+					signal_facade(sh, tp[1:])
+				else if tp[0] == "upload" then
+                    if is_file_path(tp[1]) then
+                        sh.scp(tp[1], uploads, server)
+                    end if
+				end if
+			end for
+		else
+			remote_launch(sh, payload, "task clear")
+		end if
+
+	end for
+
+	wait(2)
+end while

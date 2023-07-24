@@ -1,0 +1,59 @@
+remote_launch = function(sh, payload, parameter)
+	gco = get_custom_object()
+	gco.result = null
+	sh.launch(payload, parameter)		
+	return gco.result
+end function
+
+is_public_ip = function(ip)
+    return is_valid_ip(ip) and not is_lan_ip(ip)
+end function
+
+is_file_path = function(v)
+	if v and v[0] == "/" then return true
+	return false
+end function
+
+parse_ssh_parameters = function(v)
+	x = v.split(" ")
+	if x.len < 3 and x.indexOf("@") == null then return null
+	x = x + x[1].split("@")
+	return [x[2], x[3], x[-2], x[-1]]
+end function
+
+get_repo_address = function(sh)
+	f = sh.host_computer.File("/etc/apt/sources.txt")
+	if not f then return null
+	c = f.get_content()
+	i = 0
+	while i < c.len
+		if c[i] >= "0" and c[i] <= "9" then
+			j = i + 1
+			while j < c.len
+				if c[j] == """" then
+					return c[i: j - 1]
+				end if
+				j = j + 1
+			end while
+			break
+		end if
+		i = i + 1
+	end while 
+	return null
+end function
+
+mkdir = function(shell, path)
+	parts = path.split("/")[1:]
+	parent = "/"
+	for p in parts
+		f = shell.host_computer.File( parent + p)
+		if not f then shell.host_computer.create_folder(parent, p)
+		parent = parent + p + "/"
+	end for
+end function
+
+mkfile = function(shell, path)
+	mkdir(shell, parent_path(path))
+	shell.host_computer.touch(parent_path(path), path.split("/")[-1])
+    return shell.host_computer.File(path)
+end function

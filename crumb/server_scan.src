@@ -1,0 +1,188 @@
+scan_db_entry = function(shell, database, lib_name, lib_version)
+    // TODO: after next update, on public server original not works
+    path = database + "/" + lib_name.replace(".so", "").replace("_","") + "a" + lib_version.replace(".", "a") + "/rows.txt"
+    return path
+end function
+
+scan_create_database = function(shell, database)
+    f = shell.host_computer.File(database)
+    if not f then mkdir(shell, database)
+    f = shell.host_computer.File(database)
+    if not f then
+        print("Exploit database cannot created.")
+    else
+        print("Exploit database exists.")
+    end if
+end function
+
+scan = function(metaxploit, metaLib, args)
+    vulns = []
+    if metaLib then
+        regions = metaxploit.scan(metaLib)
+        print(metaLib.lib_name + " " + metaLib.version)
+        for r in regions
+            result = metaxploit.scan_address(metaLib, r)
+            lines = result.split("\n")
+            for line in lines
+                if line.indexOf("Unsafe check:") == 0 then
+                    s = line.indexOf(">") + 1
+                    e = line.indexOf("<", s)
+                    value = line[s:e]
+                    vulns.push(r + " " + value)
+                    print("<b>payload overflow " + args.join(" ") + " " + r + " " + value + "</b>")
+                else if line.indexOf("*") == 0 then
+                    vulns.push(line)
+                    print(line)
+                end if
+            end for
+        end for
+    end if
+    return vulns
+end function
+
+scan_exploits_append = function(lsh, database, metaLib, vulns)
+    stored = []
+    
+    path = scan_db_entry(lsh, database, metaLib.lib_name, metaLib.version)
+    f = lsh.host_computer.File(path)
+
+    if not f then 
+        f = mkfile(lsh, path)
+        stored.push("MEMORY VALUE TYPE")
+    else
+        stored = f.get_content().split("\n")
+    end if
+
+    added = 0
+    tbs = true
+    for a in vulns
+
+        if a == "" then continue
+        if a[0] == "*" then
+            if tbs then stored.push(a)
+            continue
+        end if
+        
+        t = a + " "
+        tbs = true
+        for b in stored
+            if b == "" or b[0] == "*" then continue
+            if b.indexOf(t) == 0 then
+                tbs = false
+                break
+            end if
+        end for
+
+        if tbs then
+            stored.push(a + " unknow")
+            added = added + 1
+        end if
+
+    end for
+
+    output = stored.join(char(10))
+	f.set_content(output)
+    print("Appended = " + added)
+    return added
+end function
+
+scan_facade = function(metaxploit, sh, payload, database, args, lsh)
+    lib = null
+
+    optional_scanning = true
+    libs = []
+    index = 0
+    while index < args.len
+        if args[index] == "-f" then
+            optional_scanning = false
+        else if is_valid_ip(args[index]) and index + 1 < args.len then 
+            libs.push(remote_launch(sh, payload, "dump " + args[index] + " " + args[index + 1]))
+        else
+            libs.push(remote_launch(sh, payload, "load " + args[index]))
+        end if
+        index = index + 1
+    end while
+
+    for lib in libs
+        if not lib then continue
+        if optional_scanning then
+            path = scan_db_entry(lsh, database, lib.lib_name, lib.version)
+            if lsh.host_computer.File(path) then continue
+        end if
+
+        vulns = scan(metaxploit, lib, args)
+        scan_exploits_append(lsh, database, lib, vulns)
+    end for
+
+end function
+
+exploit_db_facade = function(sh, payload, database, args, lsh)
+
+    vulns = []
+
+    index = 0
+    while index + 1 < args.len
+        lib_name = args[index]
+        lib_version = args[index + 1]
+        index = index + 2
+
+        path = scan_db_entry(lsh, database, lib_name, lib_version)
+        print("Requested = " + lib_name + " " + lib_version)
+        f = lsh.host_computer.File(path)
+
+        if f then
+            stored = f.get_content().split("\n")
+            for s in stored
+                if s == "" then continue
+                if s[0] != "0" then continue
+                if s[0] == "*" then continue
+                fields = s.split(" ")
+                if fields.len < 2 then continue
+                vulns.push([ lib_name, lib_version, fields[0], fields[1], fields[2] ])
+            end for
+        end if
+    end while
+
+    sh.host_computer.touch(parent_path(payload), "vulnerabilities.txt")
+    f = sh.host_computer.File(parent_path(payload) + "/vulnerabilities.txt")
+    if not f then return
+    output = ""
+    for v in vulns
+        output = output + v.join(" ") + char(10)
+    end for
+    f.set_content(output)
+end function
+
+exploit_db_update_facade = function(sh, payload, database, args, lsh)    
+    if args.len < 5 then return
+
+    lib_name = args[0]
+    lib_version = args[1]
+    vuln_memory = args[2]
+    vuln_value = args[3]
+    vuln_type = args[4]
+    key = vuln_memory + " " + vuln_value
+
+    f = lsh.host_computer.File(scan_db_entry(lsh, database, lib_name, lib_version))
+    
+    if not f then return
+    
+    updated = false
+    stored = f.get_content().split("\n")
+    index = 0
+    while index < stored.len
+        s = stored[index]
+        if s.indexOf(key) == 0 then
+            stored[index] = vuln_memory + " " + vuln_value + " " + vuln_type
+            updated = true
+            break
+        end if
+        index = index + 1
+    end while
+
+    if updated then
+        output = stored.join(char(10))
+        f.set_content(output)
+        print("Entry updated = " + args.join(" "))
+    end if
+end function

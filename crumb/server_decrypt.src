@@ -1,0 +1,48 @@
+decrypt = function(crypto, encrypted)
+    passwords = []
+    output = "USERNAME PASSWORD"
+
+    for e in encrypted
+        data = e.split(":")
+        if data.len > 1 then 
+            data[1] = crypto.decipher(data[1])
+            passwords.push(data.join(":"))
+            output = output + "\n" + data[0] + " " + data[1]
+        else
+            data[0] = crypto.decipher(data[0])
+            passwords.push(data.join(":"))
+            output = output + "\n " + data[0]
+        end if
+    end for
+    
+    print(format_columns(output))
+
+    return passwords
+end function
+
+decrypt_facade = function(crypto, sh, payload, args)
+    encrypted = []
+    save_to_file = false
+
+    index = 0
+    while index < args.len
+        if args[index] == "-s" then
+            save_to_file = true
+        else if is_file_path(args[index]) then
+            object = remote_launch(sh, payload, "file " + args[index])
+            if object and not object.is_binary() and not object.is_folder() and object.has_permission("r") then
+                encrypted = encrypted + object.get_content().split("\n")
+            end if
+        else
+            encrypted.push(args[index])
+        end if
+        index = index + 1
+    end while
+
+    passwords = decrypt(crypto, encrypted)
+
+    sh.host_computer.touch(parent_path(payload), "passwords.txt")
+    f = sh.host_computer.File(parent_path(payload) + "/passwords.txt")
+    if not f then return
+    f.set_content(passwords.join(char(10)))
+end function

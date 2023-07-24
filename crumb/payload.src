@@ -1,0 +1,1717 @@
+// TODO: need some update mechanic for remote computers
+
+shared_route_next_target = function(path)
+	shell = get_shell()
+	i = path.len - 1
+	while i >= 0
+		if shell.ping(path[i]) == true then return path[i]
+		i = i - 1
+	end while
+end function
+
+shared_route_build_path = function(routes, ip)
+	path = []
+	while routes.hasIndex(ip)
+		path.push(ip)
+		ip = routes[ip]
+	end while
+	return path
+end function
+
+shared_route_merge_path = function(path1, path2)
+	path = []
+	for p in path1
+		i = path2.indexOf(p)
+		if i == null then
+			path.push(p)
+		else
+			while i >= 0
+				path.push(path2[i])
+				i = i - 1
+			end while
+		end if
+	end for
+	return path
+end function
+
+shared_route_to = function()
+    routes = {}
+	visited = {}
+    open = [ get_router() ]
+	visited[open[0].local_ip] = true
+	routes[open[0].local_ip] = null
+    while open.len > 0
+        router = open.pop()
+        devices = router.devices_lan_ip
+        for d in devices
+			if visited.hasIndex(d) then continue
+			routes[d] = router.local_ip
+			visited[d] = true
+			
+            r = get_router(d)
+            if r then 
+				open.push(r)
+			end if
+        end for
+    end while
+
+	return routes
+end function
+
+shared_ask_select = function(label, values)
+    print("-- Select:")
+
+    index = 0
+    for v in values
+        print("" + index + ": " + v)
+        index = index + 1
+    end for
+
+    while true
+        s = user_input("\n" + label, false, true)
+        if s == "q" or s == "x" then return null
+        if s >= "0" and s <= "9" then return values[s.to_int]
+    end while
+end function
+
+shared_process_scan = function(shell, targets, metaxploit, remote, cc_server, signal_file)
+    if remote then
+        df = {}
+        dbr = ["add", "db"]
+        for t in targets
+            if t.net then process_task(["add", "scan", t.pip + " " + t.port]) else process_task(["add", "scan", t.path])
+            if df.hasIndex(t.lib_name + " " + t.version) then continue
+            df[t.lib_name + " " + t.version] = true
+            dbr.push(t.lib_name)
+            dbr.push(t.version)
+        end for
+
+        process_task(dbr)
+        process_task(["add", "signal", signal_file])
+        process_task(cc_server)
+        shared_wait_for_signal(shell, "Waiting to receive vulnerabilities...", signal_file)
+
+        f = shell.host_computer.File("/home/guest/vulnerabilities.txt")
+        if not f then exit("No vulnerabilities found.")
+
+        x = f.get_content().split("\n")
+        f.set_content("")
+        f.move(parent_path(f.path), ".null")
+
+        vulns = []
+        for v in x
+            if v == "" then continue
+            vulns.push(v.split(" "))
+        end for
+        return vulns
+    else
+        vulns = []
+        for t in targets
+            
+            if t.net then
+                if not t.lib then
+                    ns = metaxploit.net_use(t.pip, t.port)
+                    if not ns then continue
+                    t.lib = ns.dump_lib
+                end if
+            else
+                if not t.lib then t.lib = metaxploit.load(t.path)
+            end if
+
+            if not t.lib then continue
+
+            regions = metaxploit.scan(t.lib)
+            for r in regions
+                result = metaxploit.scan_address(t.lib, r)
+                lines = result.split("\n")
+                for line in lines
+                    if line.indexOf("Unsafe check:") == 0 then
+                        s = line.indexOf(">") + 1
+                        e = line.indexOf("<", s)
+                        value = line[s:e]
+                        vulns.push([t.lib.lib_name, t.lib.version, r, value, "unknow"])
+                    end if
+                end for
+            end for
+
+        end for
+        return vulns
+    end if
+end function
+
+shared_shell_run_and_hit = function(shell, program, shell_script, parameters)
+    
+    f = shell.host_computer.File(program)
+
+    if not f then
+        source = program + ".src"
+        source_name = source.split("/")[-1]
+        shell.host_computer.touch(parent_path(source), source_name)
+        f = shell.host_computer.File(source)
+        if not f then return null
+        f.set_content(shell_script)
+        error = shell.build(source, parent_path(source))
+        f.set_content("")
+        f.move(parent_path(f.path), ".null")
+        if not error then print(error)
+        // f.delete() // WARNING: 
+    end if
+
+    goc = get_custom_object()
+    goc.result = null
+    shell.launch(program, parameters)
+    f = shell.host_computer.File(program)
+    // if f then f.delete() // WARNING: 
+    return goc.result
+end function
+
+shared_shell_crumb = function(shell, parameters)
+
+shell_script = [
+"result = null",
+"if params.indexOf(""status"") == 0 then",
+"result = {}",
+"result[""active_user""] = active_user",
+"result[""current_date""] = current_date",
+"result[""current_path""] = current_path",
+"result[""program_path""] = program_path",
+"result[""user_bank_number""] = user_bank_number",
+"result[""user_mail_address""] = user_mail_address",
+"result[""home_dir""] = home_dir",
+"end if",
+"if params.indexOf(""shell"") == 0 and params.len > 2 then",
+"result = get_shell(params[1], params[2])",
+"end if",
+"goc = get_custom_object()",
+"goc.result = result"].join(char(10))
+    return shared_shell_run_and_hit(shell, "/home/guest/crumb", shell_script, parameters)
+end function
+
+shared_shell_get_info = function(shell)
+    return shared_shell_crumb(shell, "status")
+end function
+
+shared_shell_escalate = function(shell, user, passwd)
+    return shared_shell_crumb(shell, ["shell", user, passwd].join(" "))
+end function
+
+shared_wait_for_signal = function(shell, label, target)
+    print(label)
+    while true
+        f = shell.host_computer.File(target)
+        if not f then 
+            wait(1)
+            continue
+        end if
+
+        f.set_content("")
+        f.move(parent_path(f.path), ".null")
+        break
+    end while
+end function
+
+shared_process_db_update = function(shell, modified, remote, cc_server, signal_file)
+    if remote and modified.len > 0 then
+        for m in modified
+            process_task(["add", "dbu", m.join(" ")])
+        end for
+        process_task(["add", "signal", signal_file])
+        process_task(cc_server)
+        shared_wait_for_signal(shell, "Waiting to database update...", signal_file)
+    end if
+end function
+
+shared_process_password = function(shell, passwords, crypto, remote, cc_server, signal_file, credentials)
+    if passwords.len > 0 then
+        if remote then
+            passwords.insert(0, "decrypt")
+            passwords.insert(0, "add")
+            process_task(passwords)
+            process_task(["add", "signal", signal_file])
+            process_task(cc_server)
+            shared_wait_for_signal(shell, "Waiting to decrypt some password...", signal_file)
+            shared_read_password_from_file(shell, "/home/guest/passwords.txt", credentials)
+        else
+            
+            for p in passwords
+                fields = p.split(":")
+                pwd = crypto.decipher(fields[1])
+                if not pwd then 
+                    print("Can't decrypt password: " + fields[1])
+                else
+                    x = {}
+                    x.un = fields[0]
+                    x.pwd = pwd
+                    x.type = fields[2]
+                    x.pip = fields[3]
+                    x.lip = fields[4]
+                    credentials[x.un] = x
+                end if
+            end for
+
+        end if
+    end if
+end function
+
+shared_read_password_from_file = function(shell, path, credentials)
+    f = shell.host_computer.File(path)
+    if not f then return
+    lines = f.get_content().split("\n")
+    f.set_content("")
+    f.move(parent_path(f.path), ".null")
+
+    for l in lines
+        if l == "" then continue
+        fields = l.split(":")
+        x = {}
+        x.un = fields[0]
+        x.pwd = fields[1]
+        x.type = fields[2]
+        x.pip = fields[3]
+        x.lip = fields[4]
+        credentials[x.un] = x
+    end for
+end function
+
+shared_search_passwords_append = function(f, passwords, metadata)
+    if not f then return
+    content = f.get_content()
+    if not content then return
+    lines = content.split("\n")
+    for l in lines
+        if l == "" then continue
+        existed = null
+        for p in passwords
+            existed = p.indexOf(l)
+            if existed == 0 then break
+        end for
+        if existed == null then passwords.push(l + ":" + metadata)
+    end for
+end function
+
+shared_search_passwords = function(object, passwords, source)
+    root = null
+    
+    if typeof(object) == "shell" then
+        object = object.host_computer
+    end if
+
+    if typeof(object) == "computer" then
+        root = object.File("/")
+    end if
+
+    if typeof(object) == "file" then
+        f = object
+        while f.parent != null
+            f = f.parent
+        end while
+        root = f
+    end if
+
+    if root then
+        open = [root]
+        while open.len > 0
+            current = open.pop()
+            open = open + current.get_folders()
+            files = current.get_files()
+            for f in files
+                if f.is_binary() then continue
+                if f.path.indexOf("/passwd") != null then shared_search_passwords_append(f, passwords, "user:" + source)
+                if f.path.indexOf("/Bank.txt") != null then shared_search_passwords_append(f, passwords, "bank:" + source)
+                if f.path.indexOf("/Mail.txt") != null then shared_search_passwords_append(f, passwords, "mail:" + source)
+            end for
+        end while
+    end if
+end function
+
+shared_lookup_service_lib = function(name)
+    o = {}
+    o["students"] = "libsql.so"
+    o["employees"] = "libsql.so"
+    o["http"] = "libhttp.so"
+    o["ftp"] = "libftp.so"
+    o["ssh"] = "libssh.so"
+    o["rshell"] = "librshell.so"
+    o["repository"] = "librepository.so"
+    o["smtp"] = "libsmtp.so"
+    o["criminals"] = "libsql.so"
+
+    if o.hasIndex(name) then return o[name]
+    print("Unknow service name " + name)
+    return null
+end function
+
+shared_get_port_info = function(router, ip, reachable, public = false)
+	result = []
+    if public then ports = router.used_ports else ports = router.device_ports(ip)
+    if ports and typeof(ports) != "string" then
+        for p in ports
+            pi = router.port_info(p).split(" ")
+			result.push( [ ip, p.port_number, pi[0], pi[1], p.get_lan_ip() == ip, p.get_lan_ip(), reachable ] )
+        end for
+    end if
+	return result
+end function
+
+shared_whois = function(ip)
+    if is_valid_ip(ip) and not is_lan_ip(ip) then
+        result = { "Public IP": ip }
+        response = whois(ip)
+        lines = response.split("\n")
+        for l in lines
+            kv = l.split(": ")
+            result[kv[0]] = kv[1]
+        end for
+        return result
+    end if
+    return {}
+end function
+
+shared_path_relative = function(target, current)
+	level = target.split("/")
+	cursor = 0
+	
+	if not current.is_folder then
+		current = current.parent
+	end if
+
+	while cursor < level.len
+		if level[cursor] == ".." then
+			current = current.parent
+		else
+			folders = current.get_folders
+			changed = false
+			
+			for a in folders
+				if a.name == level[cursor] then
+					if cursor + 1 >= level.len then
+						return a
+					end if
+					current = a
+					changed = true
+					break
+				end if
+			end for
+			
+			if not changed then
+				files = current.get_files
+				for b in files
+					if b.name == level[cursor] then
+						return b
+					end if
+				end for
+			end if
+			
+		end if
+		cursor = cursor + 1
+	end while
+	
+	return null
+end function
+
+shared_print_file = function(file)
+	if file then
+		if file.is_folder then
+			folders = file.get_folders
+			for f in folders
+				print(f.name)
+			end for
+			files = file.get_files
+			for f in files
+				print(f.name)
+			end for
+		else
+			print(file.get_content)
+		end if
+	end if
+end function
+
+shared_install_to_target = function(lshell, rshell)
+    mxf = lshell.host_computer.File(parent_path(program_path) + "/metaxploit.so")
+    if not mxf then mxf = lshell.host_computer.File("/lib/metaxploit.so")
+    if not mxf then print("Warrning: missing metaxploit.so")
+
+    lshell.scp(program_path, parent_path(program_path), rshell)
+    if mxf then lshell.scp(mxf.path, parent_path(program_path), rshell)
+end function
+
+shared_simple_yes_or_no = function(label)
+    while true
+        k = user_input(label, false, true)
+        if k == "y" or k == "1" then return true
+        if k == "n" or k == "0" then return false
+    end while
+end function
+
+is_memory = function(v)
+	if v then return v.indexOf("0x") == 0 else return false
+end function
+
+get_absolute_path = function(shell, p)
+	if p then
+		f = shell.host_computer.File(p)
+		if f then return f
+		
+		f = shell.host_computer.File(current_path + "/" + p)
+		if f then return f
+	end if
+	return null
+end function
+
+shared_file_search = function(sh, filter = null, root = "/")
+	result = []
+	folders = [sh.host_computer.File(root)]
+	while folders.len > 0
+		current = folders.pop()
+		folders = folders + current.get_folders()
+		if filter then
+			for f in current.get_files()
+				if f.path.indexOf(filter) >= 0 then
+					result.push(f)
+				end if
+			end for
+		else
+			result = result + current.get_files()
+		end if
+	end while
+	return result
+end function
+
+shared_get_executable = function(shell, cmd)
+    if cmd then
+        f = shell.host_computer.File(cmd)
+        if f then return f.path
+        
+        f = shell.host_computer.File(current_path + "/" + cmd)
+        if f then return f.path
+        
+        f = shell.host_computer.File("/bin/" + cmd)
+        if f then return f.path
+        
+        f = shell.host_computer.File("/usr/bin/" + cmd)
+        if f then return f.path
+        
+    end if
+    return null
+end function
+
+process_file = function(args)
+    if args.len == 0 then exit()
+    goc = get_custom_object()
+    goc.result = get_shell().host_computer.File(args[0])
+end function
+
+process_load = function(args)
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    if args.len == 0 then exit()
+    goc = get_custom_object()
+    goc.result = metaxploit.load(args[0])
+end function
+
+process_dump = function(args)
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    if args.len < 2 then exit()
+    ns = metaxploit.net_use(args[0], args[1].to_int)
+    
+    goc = get_custom_object()
+    if ns then goc.result = ns.dump_lib() else goc.result = null
+end function
+
+process_metaxploit = function(args)
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    goc = get_custom_object()
+    goc.result = metaxploit
+end function
+
+process_status = function(args)
+    mx_version = null
+    mx_path = "/lib/metaxploit.so"
+    mx = include_lib(mx_path)
+
+    if not mx then 
+        mx_path = current_path + "/metaxploit.so"
+        mx = include_lib(mx_path)
+    end if
+    
+    if mx then
+        mx_lib = mx.load(mx_path)
+        if mx_lib then mx_version = mx_lib.version
+    end if
+
+    result = {}
+    result["active_user"] = active_user
+    result["current_date"] = current_date
+    result["current_path"] = current_path
+    result["program_path"] = program_path
+    result["user_bank_number"] = user_bank_number
+    result["user_mail_address"] = user_mail_address
+    result["home_dir"] = home_dir
+    result["version"] = "1.0.7"
+    result["metaxploit"] = mx_version
+
+    goc = get_custom_object()
+    goc.result = result
+end function
+
+process_include = function(args)
+    if args.len == 0 then exit()
+    lib = include_lib(args[0])
+    if not lib then lib = include_lib(current_path + "/" + args[0])
+    if not lib then lib = include_lib("/lib/" + args[0])
+
+    goc = get_custom_object()
+    goc.result = lib
+end function
+
+process_get_router = function(args)
+    result = null
+    if args.len > 0 then result = get_router(args[0]) else result = get_router()
+    goc = get_custom_object()
+    goc.result = result
+end function
+
+process_get_switch = function(args)
+    goc = get_custom_object()
+    goc.result = get_switch()
+end function
+
+process_network = function(args)
+    shell = get_shell()
+    detected = []
+    unreachables = []
+    routers = []
+    access_points = [ ]
+    open_ports = [ ]
+    firewall_rules = { }
+    whois_info = null
+
+    if not shell.host_computer.is_network_active then exit("No internet access.")
+    if args.len > 0 and not is_valid_ip(args[0]) then exit("Invalid parameter")
+
+    if args.len > 0 and is_lan_ip(args[0]) then
+
+        // search open port on local device
+    
+        ip = args[0]
+        current = get_router(ip)
+        if current == null then exit("IP address not found")
+    
+        whois_info = shared_whois(current.public_ip)
+    
+        reachable = shell.ping(current.local_ip)
+        open_ports = open_ports + [[current.local_ip, 0, "kernel_router", current.kernel_version, true, current.local_ip, reachable]]
+        open_ports = open_ports + shared_get_port_info(current, current.local_ip, reachable)
+        if not reachable then unreachables.push( current.local_ip )
+        if current.essid_name then access_points.push( current.local_ip )
+        if typeof(current.firewall_rules) == "list" then firewall_rules[current.local_ip] = current.firewall_rules
+        routers.push(current.local_ip)
+        detected.push(current.local_ip)
+    
+    else if args.len > 0 and not is_lan_ip(args[0]) then
+    
+        // search open port on public device
+    
+        ip = args[0]
+        current = get_router(ip)
+        if current == null then exit("IP address not found")
+    
+        whois_info = shared_whois(current.public_ip)
+    
+        reachable = shell.ping(current.public_ip)
+        open_ports = open_ports + [[current.local_ip, 0, "kernel_router", current.kernel_version, true, current.local_ip, reachable]]
+        open_ports = open_ports + shared_get_port_info(current, current.local_ip, reachable, true)
+        if not reachable then unreachables.push( current.local_ip )
+        if current.essid_name then access_points.push( current.local_ip )
+        if typeof(current.firewall_rules) == "list" then firewall_rules[current.public_ip] = current.firewall_rules
+        routers.push(current.local_ip)
+        detected.push(current.local_ip)
+        
+    else
+
+        // search devices on local network and open ports
+    
+        open = [ get_router() ]
+    
+        if open.len > 0 then whois_info = shared_whois(open[0].public_ip)
+    
+        while open.len > 0
+            current = open.pop()
+    
+            if not current then continue
+            
+            if detected.indexOf(current.local_ip) == null then detected.push(current.local_ip)
+    
+            devices = current.devices_lan_ip()
+            reachable = shell.ping(current.local_ip)
+            open_ports = open_ports + [[current.local_ip, 0, "kernel_router", current.kernel_version, true, current.local_ip, reachable]]
+            open_ports = open_ports + shared_get_port_info(current, current.local_ip, reachable)
+            
+            if not reachable then unreachables.push( current.local_ip )
+            if current.essid_name then access_points.push( current.local_ip )
+            if typeof(current.firewall_rules) == "list" then firewall_rules[current.local_ip] = current.firewall_rules
+            routers.push(current.local_ip)
+    
+            for d in devices
+                is_router = get_router(d)
+                if is_router and detected.indexOf(d) == null then
+                    open.push(is_router)
+                else if detected.indexOf(d) == null then 
+                    detected.push(d)
+    
+                    reachable = shell.ping(d)
+                    open_ports = open_ports + shared_get_port_info(current, d, shell.ping(d))
+                    
+                    if not reachable then unreachables.push( d )
+                    
+                end if
+            end for
+        end while
+    end if
+        
+    print()
+    if whois_info and whois_info.indexes.len > 0 then
+        longest_key = 0
+        for k in whois_info.indexes
+            if longest_key < k.len then longest_key = k.len
+        end for
+
+        text = ("KEY" + (" " * (longest_key - 3) )) + "  VALUE"
+        for k in whois_info.indexes
+            text = text + "\n" + k + (" " * (longest_key - k.len)) + "  " + whois_info[k]
+        end for
+        print(text)
+        print()
+    end if
+
+    print("Devices:")
+    text = "IP ROUTER REACHABLE WIFI_AP\n"
+    for d in detected
+        ur = "True"
+        if unreachables.indexOf(d) != null then ur = "False"
+
+        r = "False"
+        if routers.indexOf(d) != null then r = "True"
+
+        a = "False"
+        if access_points.indexOf(d) != null then a = "True"
+        
+        text = text + d + " " + r + " " + ur + " " + a + "\n"
+    end for
+
+    print(format_columns(text))
+    print("")
+    print("Open ports:")
+    text = "IP PORT SERVICE VERSION REACHABLE FORWARDED\n"
+    for p in open_ports
+        r = "True"
+        if not p[6] then r = "False"
+        f = ""
+        if not p[4] then f = p[5]
+        text = text + p[0] + " " + p[1] + " " + p[2] + " " + p[3] + " " + r + " " + f + "\n"
+    end for
+    print(format_columns(text))
+
+    print("")
+    print("Firewall rules:")
+    for k in firewall_rules
+        if k.value.len > 0 then        
+            print(k.key)
+            text = "Action Port Source Destination"
+            for r in k.value
+                text = text + "\n" + r
+            end for
+            print(format_columns(text))
+        end if
+    end for
+
+end function
+
+process_overflow = function(args)
+    if args.len < 3 then exit("Missing parameters.")
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    metaLib = null
+    memory = null
+    values = null
+    extra_args = ""
+    magic_parameter = args.indexOf("-m") >= 0
+
+    if is_valid_ip(args[0]) then
+        offset = 0
+        address = args[offset + 0]
+        port = 0
+        
+        if not is_memory(args[offset + 1]) then 
+            port = args[offset + 1].to_int
+            offset = offset + 1
+        end if
+        
+        net_session = metaxploit.net_use( address, port )
+
+        if not net_session then exit("Can't connect!")
+        metaLib = net_session.dump_lib
+        memory = args[offset + 1]
+        values = args[offset + 2]
+        if args.len > offset + 3 then extra_args = args[offset + 3]
+    else
+        metaLib = metaxploit.load(args[0])
+        memory = args[1]
+        values = args[2]
+        if args.len > 3 then extra_args = args[3]
+    end if
+
+    result = metaLib.overflow(memory, values, extra_args)
+    if typeof(result) == "shell" then
+        result.start_terminal()
+    else if typeof(result) == "computer" then
+        if extra_args != "" then
+            result = result.File(extra_args)
+        else
+            result = result.File("/etc/passwd")
+        end if
+    else if typeof(result) == "file" then
+        if extra_args != "" then
+            result = shared_path_relative(extra_args, result)
+        end if
+    end if
+
+    if typeof(result) == "file" then
+        if magic_parameter and not result.is_binary() and not result.is_folder() and result.has_permission("r") then
+            lines = result.get_content().split("\n")
+            for l in lines
+                process_task(["add", "decrypt", l])
+            end for
+        else
+            print(result.path)
+            shared_print_file(result)
+        end if
+    else
+        print(typeof(result))
+        print(result)
+    end if
+end function
+
+process_search_file = function(args)
+    filter = null
+    execute = null
+    task = null
+    offset = 0
+    shell = get_shell()
+    readable = false
+    permissions = false
+    root = shell.host_computer.File("/")
+
+    cursor = 0
+    while cursor < args.len
+        p = args[cursor]
+        
+        if p == "-x" then
+            if cursor + 1 >= args.len then exit("Missing command parameter.")
+            execute = shared_get_executable(shell, args[cursor + 1])
+            if not execute then exit("Command not found: " + args[cursor + 1] + ".")
+            cursor = cursor + 1
+        else if p == "-l" then
+            if cursor + 1 >= args.len then exit("Missing root parameter.")
+            root = get_absolute_path(shell, args[cursor + 1])
+            if not root or not root.is_folder() then exit("Root folder not found: " + args[cursor + 1] + ".")
+            cursor = cursor + 1
+        else if p == "-r" then
+            readable = true
+        else if p == "-t" then
+            if cursor + 1 >= args.len then exit("Missing task parameter.")
+            task = args[cursor + 1]
+            cursor = cursor + 1
+        else if p == "-p" then
+            permissions = true
+        else
+            filter = p
+        end if
+
+        cursor = cursor + 1
+    end while
+
+    files = shared_file_search(shell, filter, root.path)
+    if permissions then
+        output = "USER GROUP PERMISSIONS PATH"
+        for f in files
+            output = output + "\n" + (f.owner + " " + f.group + " " + f.permissions + " " + f.path)
+        end for
+        print(format_columns(output))
+    else
+        for f in files
+            if readable and not f.has_permission("r") then continue
+
+            if execute then
+                shell.launch(execute, f.path)
+            else if task then
+                process_task(["add", task, f.path])
+            else
+                print(f.path)
+            end if
+        end for
+    end if
+end function
+
+process_scan = function(args)
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    save_to_file = null
+    execute_vulns = false
+    filtered_args = []
+
+    index = 0
+    while index < args.len
+        if args[index] == "-s" then
+            if index + 1 < args.len then
+                save_to_file = args[index + 1]
+                index = index + 1
+            end if
+        else if args[index] == "-r" then
+            execute_vulns = true
+        else
+            filtered_args.push(args[index])
+        end if
+        index = index + 1
+    end while
+    args = filtered_args
+
+    if args.len == 0 then exit("Missing parameter")
+
+    metaLib = null
+    if is_valid_ip(args[0]) then
+        address = args[0]
+        port = 0
+        if args.len > 1 then port = args[1].to_int
+        net_session = metaxploit.net_use( address, port )
+        
+        if not net_session then
+            exit("Can't connect!")
+        end if
+
+        metaLib = net_session.dump_lib
+    else
+        metaLib = metaxploit.load(args[0])
+    end if
+
+    if not metaLib then exit("No lib found.")
+    vulns = []
+    regions = metaxploit.scan(metaLib)
+    print(metaLib.lib_name + " " + metaLib.version)
+    print(regions)
+    for r in regions
+        result = metaxploit.scan_address(metaLib, r)
+        lines = result.split("\n")
+        for line in lines
+            if line.indexOf("Unsafe check:") == 0 then
+                s = line.indexOf(">") + 1
+                e = line.indexOf("<", s)
+                value = line[s:e]
+                vulns.push([] + args + [r, value])
+                print("payload overflow " + args.join(" ") + " " + r + " " + value)
+            else if line.indexOf("*") == 0 then
+                print(line)
+            end if
+        end for
+    end for
+
+    if save_to_file and vulns.len > 0 then
+        get_shell().host_computer.touch(parent_path(save_to_file), save_to_file.split("/")[-1])
+        f = get_shell().host_computer.File(save_to_file)
+        if f then f.set_content(vulns.join(char(10)))
+    end if
+
+    if execute_vulns then
+        for v in vulns
+            process_overflow(v)
+        end for
+    end if
+
+end function
+
+
+shared_overflow_item = function(metaxploit, t, fields, remote_decrypt, know_types, possible_type, modified, passwords, shells)
+    result = null
+
+    if t.net then
+        ns = metaxploit.net_use(t.pip, t.port)
+        if not ns then return null
+        ml = ns.dump_lib()
+        if not ml then  return null
+        result = ml.overflow(fields[2], fields[3])
+    else
+        result = t.lib.overflow(fields[2], fields[3])
+    end if
+
+    if remote_decrypt and fields[4] == "unknow" and result != null then
+
+        type = typeof(result)
+        print(type)
+        if know_types.indexOf(type) == null then
+            type = shared_ask_select("Which type of exploit?", possible_type)
+        end if
+
+        if type then
+            fields[4] = type
+            modified.push(fields)
+        end if
+
+    end if
+    
+    shared_search_passwords(result, passwords, t.pip + ":" + t.lip)
+    if typeof(result) == "shell" then
+        shell_info = shared_shell_get_info(result)
+        shells.push( [shells.len, shell_info, result, t, fields] )
+    end if
+
+    return result
+end function
+
+shared_overflow_has_root = function(passwords)
+    for p in passwords
+        if p.indexOf("root:") == 0 then return true
+    end for
+    return false
+end function
+
+shared_overflow = function(shell, targets, vulns, metaxploit, crypto, remote_decrypt, cc_server, shells, credentials, full_overflow, decrypt_all_credentials)
+
+    modified = []
+    know_types = ["shell", "computer", "file"]
+    possible_type = ["password", "firewall", "unknow"]
+    passwords = []
+    stages = [ ["file", "computer"], ["unknow"], ["shell"], ["unknow"] ]
+
+    if full_overflow then
+        for fields in vulns
+            for t in targets
+                if fields[0] == t.lib_name and fields[1] == t.version then
+                    shared_overflow_item(metaxploit, t, fields, remote_decrypt, know_types, possible_type, modified, passwords, shells)
+                end if
+            end for
+        end for
+    else
+
+        // 0 = no credentials, 1 = try unknow, 2 = try shells, 3 = try unknow
+        has_root_credentials = false
+        has_shell = false
+        stage = 0    
+        stage_change = false
+
+        while stage < 4
+            filter = stages[stage]
+            stage_change = false
+
+            for fields in vulns
+                if filter.indexOf(fields[4]) == null then continue
+        
+                for t in targets
+                    if fields[0] == t.lib_name and fields[1] == t.version then
+                        shared_overflow_item(metaxploit, t, fields, remote_decrypt, know_types, possible_type, modified, passwords, shells)
+
+                        if has_root_credentials == false and shared_overflow_has_root(passwords) then
+                            has_root_credentials = true
+                            stage = stage + 2
+                            stage_change = true
+                        end if
+
+                        if has_shell == false and shells.len > 0 then
+                            has_shell = true
+                            stage = stage + 2
+                            stage_change = true
+                        end if
+
+                        if stage_change then break
+
+                    end if                
+                end for
+
+                if stage_change then break
+
+            end for
+
+            if not stage_change then stage = stage + 1
+
+        end while
+    end if
+
+    shared_process_db_update(shell, modified, remote_decrypt, cc_server, "/home/guest/time0")
+
+    if not (full_overflow or decrypt_all_credentials) then
+        temp = []
+        for p in passwords
+            if p.indexOf(":user:") >= 0 then temp.push(p)
+        end for
+        passwords = temp
+    end if
+
+    shared_process_password(shell, passwords, crypto, remote_decrypt, cc_server, "/home/guest/time1", credentials)
+end function
+
+process_escalate = function(args)
+    if active_user == "root" then exit("You are already a superuser.")
+
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    shell = get_shell()
+    computer = shell.host_computer
+    cc_server = ["start", "*.*.*.*", "*"]
+    remote_decrypt = true
+    crypto = null
+
+    if args.indexOf("-local") != null then
+        remote_decrypt = false
+        crypto = include_lib( parent_path(program_path) + "/crypto.so")
+        if not crypto then crypto = include_lib("/lib/crypto.so")
+        if not crypto then exit("Error: Can't find crypto library in the /lib path or the current folder")
+    end if
+
+    f = computer.File("/etc/passwd")
+    if f and f.has_permission("r") then print("We have read access to /etc/passwd file!")
+    if f and f.has_permission("w") then print("We have write access to /etc/passwd file!") // TODO: 
+
+    targets = []
+    shells = []
+    credentials = {}
+    passwords = []
+    mail_access = []
+    admin_email = null
+    admin_name = null
+    current_domain = null
+    public_info = shared_whois(computer.public_ip)
+    email_sended = false
+    modified = []
+    know_types = ["shell", "computer", "file"]
+    posible_type = ["password", "firewall", "unknow"]
+    overflow_full = false
+    overflow_credentials = false
+
+    if args.indexOf("-full") != null then
+        overflow_full = true
+    end if
+
+    if args.indexOf("-credentials") != null then
+        overflow_credentials = true
+    end if
+    
+    f = computer.File("/lib")
+    if not f then exit("No access to system files")
+    files = f.get_files()
+
+    for lf in files
+        lib = metaxploit.load(lf.path)
+        if lib then 
+            targets.push({ "net": false, "lib": lib, "path": lf.path, "lib_name": lib.lib_name, "version": lib.version, "pip": computer.public_ip, "lip": computer.local_ip, "port": -1 })
+        end if
+    end for
+
+    vulns = shared_process_scan(shell, targets, metaxploit, remote_decrypt, cc_server, "/home/guest/escalate_collecting")
+
+    f = computer.File("/etc/passwd")
+    shared_search_passwords(f, passwords, computer.public_ip + ":" + computer.local_ip)
+
+    shared_overflow(shell, targets, vulns, metaxploit, crypto, remote_decrypt, cc_server, shells, credentials, overflow_full, overflow_credentials)
+
+    print()
+    print("Public IP = " + computer.public_ip)
+    print("Local IP = " + computer.local_ip)
+    if public_info and public_info.indexes.len > 0 then
+        admin_email = public_info["Email address"]
+        admin_name = public_info["Administrative contact"]
+        current_domain = public_info["Domain name"]
+
+        print("Domain = " + current_domain)
+        print("Admin Name = " + admin_name)
+        print("Admin Email = " + admin_email)
+        print("Phone = " + public_info["Phone"])
+    end if
+    print("Current user = " + active_user + " (email: " + user_mail_address + ", bank: " + user_bank_number + ")")
+
+    print()
+    print("Captured credentials:")
+    output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
+    for v in credentials.indexes
+        u = credentials[v]
+        if u.type == "mail" then mail_access.push(u)
+        output = output + "\n" + u.un + " " + u.pwd + " " + u.type + " " + u.pip + " " + u.lip
+    end for
+    print(format_columns(output))
+    print()
+
+    print("Captured shells:")
+    output = "ID IP PORT USER CURRENT_DIRECTORY LIB VERSION MEMORY VALUE"
+    for s in shells
+        output = output + "\n" + s[0] + " " + s[3].lip + " " + s[3].port + " " + s[1]["active_user"] + " " + s[1]["current_path"] + " " + s[4][0] + " " + s[4][1] +  " " + s[4][2] + " " + s[4][3]
+    end for
+    print(format_columns(output))
+    print()
+
+    for s in shells
+        if s[1]["active_user"] == "root" then
+            print("We got root shell.")
+            s[2].start_terminal()
+        end if
+    end for
+
+    if credentials.hasIndex("root") then
+        root = credentials["root"]
+        rsh = get_shell(root.un, root.pwd)
+        if rsh then
+            rsh.start_terminal()
+        else
+            print("Warning: We have root credentials but cannot log in with them.")
+        end if
+    end if
+
+    if mail_access.len > 0 then
+        print("Do you want to send mail?")
+        if shared_simple_yes_or_no("y/n") then
+            index = 0
+            for ma in mail_access
+                print("" + index + ": " + mail_access[0])
+                index = index + 1
+            end for
+            index = user_input("Mail from: ")
+            if index > "0" and index < "9" then
+                access = mail_access[index.to_int]
+                index = user_input("Mail to: ")
+                if (index >= "0" and index <= "9") or index == "m" then
+                    if index == "m" then
+                        address = user_input("Email: ")
+                        subject = user_input("Subject: ")
+                        message = user_input("Message: ")
+                        mail = mail_login(access.un, access.pwd)
+                        mail.send(address, subject, message)
+                        email_sended = true
+                    else
+                        target = mail_access[index.to_int]
+                        if target then
+                            mail = mail_login(access.un, access.pwd)
+                            if mail then
+                                if access.un == admin_email then
+                                    mail.send(target.un, "Online user", "Hello " + ( target.un.split("@")[0] ) + ", " + admin_name + ", " + current_domain)
+                                    email_sended = true
+                                else
+                                    mail.send(target.un, "Admin online", "Hello " + admin_name + ", " + ( access.un.split("@")[0] ) + ", " + current_domain)
+                                    email_sended = true
+                                end if
+                            else
+                                print("Can't login.")
+                            end if
+                        end if
+                    end if
+                end if
+            end if
+        end if
+    end if
+
+    if shells.len > 0 then
+        index = user_input("Shell: ")
+        if index == "" or index == "x" then return
+        shells[index.to_int][2].start_terminal()
+    end if
+
+    if email_sended and shared_simple_yes_or_no("Try again (y/n)") then
+        print("\n]---------------------------------------------[\n")
+        process_escalate(args)
+    end if
+
+end function
+
+process_guided_hack = function(args)
+
+    if args.len == 0 then exit("Missing parameter.")
+    if not is_valid_ip(args[0]) then exit("Invalid parameter.")
+
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    ip = args[0]
+    is_local_ip = is_lan_ip(ip)
+    router = null
+    cc_server = ["start", "*.*.*.*", "*"]
+    remote_decrypt = true
+    shell = get_shell()
+    computer = shell.host_computer
+    targets = []
+    crypto = null
+    shells = []
+    credentials = {}
+    ssh_servers = []
+    ftps_servers = []
+    mail_access = []
+    admin_email = null
+    admin_name = null
+    current_domain = null
+    public_info = null
+    email_sended = false
+    ports = null
+    overflow_full = false
+    overflow_credentials = false
+
+    if args.indexOf("-full") != null then
+        overflow_full = true
+    end if
+
+    if args.indexOf("-credentials") != null then
+        overflow_credentials = true
+    end if
+
+    if args.indexOf("-local") != null then
+        remote_decrypt = false
+        crypto = include_lib( parent_path(program_path) + "/crypto.so")
+        if not crypto then crypto = include_lib("/lib/crypto.so")
+        if not crypto then exit("Error: Can't find crypto library in the /lib path or the current folder")
+    end if
+
+    if is_local_ip then
+        router = get_router(ip)
+        if not router then router = get_router()
+    else
+        router = get_router(ip)
+    end if
+
+    if router == null then exit("IP not found.")
+    public_info = shared_whois(router.public_ip)
+
+    if is_local_ip then
+        ports = router.device_ports(ip)
+    else
+        ports = router.used_ports()
+    end if
+
+    if is_local_ip and shell.ping(ip) == false then
+        print("Warrning target not reachable.")
+
+        routes = shared_route_to()
+        path1 = shared_route_build_path(routes, computer.local_ip)
+        path2 = shared_route_build_path(routes, ip)
+        path3 = shared_route_merge_path(path1, path2)
+        next_target = shared_route_next_target(path3)
+
+        print("Possible next target = " + next_target)
+        if shared_simple_yes_or_no("Continue? (y/n)") == false then
+            exit()
+        end if
+
+    end if
+
+    if typeof(ports) != "string" then
+        for port in ports
+            pi = router.port_info(port).split(" ")
+            if not is_local_ip and port.is_closed() then continue
+            
+            lib_name = shared_lookup_service_lib(pi[0])
+            if not lib_name or lib_name == "" then continue
+            targets.push({ "net": true, "lib": null, "path": null, "lib_name": lib_name, "version": pi[1], "pip": ip, "lip": port.get_lan_ip(), "port": port.port_number })
+        end for
+    end if
+
+    if not is_lan_ip or router.local_ip == ip then
+        targets.push({ "net": true, "lib": null, "path": null, "lib_name": "kernel_router.so", "version": router.kernel_version, "pip": ip, "lip": router.local_ip, "port": 0 })
+    end if
+
+    vulns = shared_process_scan(shell, targets, metaxploit, remote_decrypt, cc_server, "/home/guest/collecting")
+
+    for t in targets
+        if t.lib_name == "libssh.so" then ssh_servers.push([t.pip, t.port, t.lip])
+        if t.lib_name == "libftp.so" then ftps_servers.push([t.pip, t.port, t.lip])
+    end for
+
+    shared_overflow(shell, targets, vulns, metaxploit, crypto, remote_decrypt, cc_server, shells, credentials, overflow_full, overflow_credentials)
+
+    print()
+    print("Public IP = " + router.public_ip)
+
+    if public_info and public_info.indexes.len > 0 then
+        admin_email = public_info["Email address"]
+        admin_name = public_info["Administrative contact"]
+        current_domain = public_info["Domain name"]
+
+        print("Domain = " + current_domain)
+        print("Admin Name = " + admin_name)
+        print("Admin Email = " + admin_email)
+        print("Phone = " + public_info["Phone"])
+    end if
+
+    print()
+    print("Captured credentials:")
+    output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
+    for v in credentials.indexes
+        u = credentials[v]
+        output = output + "\n" + u.un + " " + u.pwd + " " + u.type + " " + u.pip + " " + u.lip
+    end for
+    print(format_columns(output))
+    print()
+
+    if ssh_servers.len > 0 then
+        print("Available ssh servers:")
+        output = "PUBLIC_IP PORT LOCAL_IP"
+        for s in ssh_servers
+            output = output + "\n" + s.join(" ")
+        end for
+        print(format_columns(output))
+        print()
+    end if
+
+    if ftps_servers.len > 0 then
+        print("Available ftp servers:")
+        output = "PUBLIC_IP PORT LOCAL_IP"
+        for s in ftps_servers
+            output = output + "\n" + s.join(" ")
+        end for
+        print(format_columns(output))
+        print()
+    end if
+
+    print("Captured shells:")
+    output = "ID IP PORT USER CURRENT_DIRECTORY LIB VERSION MEMORY VALUE"
+    for s in shells
+        output = output + "\n" + s[0] + " " + s[3].lip + " " + s[3].port + " " + s[1]["active_user"] + " " + s[1]["current_path"] + " " + s[4][0] + " " + s[4][1] +  " " + s[4][2] + " " + s[4][3]
+    end for
+    print(format_columns(output))
+    print()
+
+    if shells.len > 0 then
+        index = user_input(": ")
+        if index == "" or index == "x" then return
+        ish = shells[index.to_int]
+        rsh = ish[2]
+        if ish[1]["active_user"] != "root" and credentials.hasIndex("root") then
+
+            print()
+            if shared_simple_yes_or_no("We know the network root password. Do yo want to escalating? (y/n)") then
+                user = credentials["root"]
+                rrsh = shared_shell_escalate(rsh, user.un, user.pwd)
+                if typeof(rrsh) == "shell" then rsh = rrsh
+            end if
+        end if
+        
+        if shared_simple_yes_or_no("Do you want to install the payload? (y/n)") then
+            shared_install_to_target(shell, rsh)
+        end if
+
+        rsh.start_terminal()
+    end if
+
+end function
+
+process_credentials = function(args)
+    cc_server = ["start", "*.*.*.*", "*"]
+    remote_decrypt = true
+    passwords = []
+    shell = get_shell()
+    computer = shell.host_computer
+    root = get_shell().host_computer.File("/")
+    crypto = null
+    credentials = {}
+
+    if args.indexOf("-local") != null then
+        remote_decrypt = false
+        crypto = include_lib( parent_path(program_path) + "/crypto.so")
+        if not crypto then crypto = include_lib("/lib/crypto.so")
+        if not crypto then exit("Error: Can't find crypto library in the /lib path or the current folder")
+    end if
+
+    shared_search_passwords(root, passwords, computer.public_ip + ":" + computer.local_ip)
+    shared_process_password(shell, passwords, crypto, remote_decrypt, cc_server, "/home/guest/autohack_passwords_1", credentials)
+
+    print()
+    print("Captured credentials:")
+    output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
+    for v in credentials.indexes
+        u = credentials[v]
+        output = output + "\n" + u.un + " " + u.pwd + " " + u.type + " " + u.pip + " " + u.lip
+    end for
+    print(format_columns(output))
+
+end function
+
+process_task = function(args)
+    if args.len == 0 then exit()
+    command = args[0]
+    args = args[1:]
+
+    if command == "start" then
+        task_start(args)
+    else if command == "stop" then
+        task_stop(args)
+    else if command == "clear" then
+        task_clear(args)
+    else if command == "add" then
+        task_add(args)
+    end if
+end function
+
+task_start = function(args)
+    if args.len < 2 then exit("Invalid arguments.")
+    if not is_valid_ip(args[0]) then exit("Invalid IP address.")
+
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    r = metaxploit.rshell_client(args[0], args[1].to_int, "tasks")
+    if r != true then print(r)
+end function
+
+task_stop = function(args)
+    shell = get_shell()
+    computer = shell.host_computer
+    process = computer.show_procs.split(char(10))[1:]
+    for p in process
+		data = p.split(" ")
+        if data[4] == "tasks" then
+            computer.close_program(data[1].to_int)
+        end if
+    end for
+end function
+
+task_clear = function(args)
+    path_tasks = "/home/guest/tasks.txt"
+    shell = get_shell()
+    computer = shell.host_computer
+    f = computer.File(path_tasks)
+    if f then
+        f.set_content("")
+        f.move(parent_path(f.path), ".null")
+    end if
+    process = computer.show_procs.split(char(10))[1:]
+    for p in process
+		data = p.split(" ")
+        if data[4] == "tasks" then
+            computer.close_program(data[1].to_int)
+        end if
+    end for
+end function
+
+task_add = function(args)
+    if args.len == 0 then return
+
+    command = args[0]
+    args = args[1:]
+    path_tasks = "/home/guest/tasks.txt"
+    shell = get_shell()
+
+    if command == "upload" then
+        if args.len == 0 then exit("Invalid arguments")
+        t = shell.host_computer.File(args[0])
+        if not t then exit("Target not exists")
+        append(shell, path_tasks, "upload " + t.path)
+    end if
+
+    if command == "decrypt" then
+        if args.len == 0 then exit("Invalid arguments")
+        append(shell, path_tasks, "decrypt " + args.join(" "))
+    end if
+
+    if command == "scan" then
+        if args.len == 0 then exit("Invalid arguments")
+        append(shell, path_tasks, "scan " + args.join(" "))
+    end if
+
+    if command == "signal" then
+        append(shell, path_tasks, "signal " + args.join(" "))
+    end if
+
+    if command == "db" then
+        append(shell, path_tasks, "db " + args.join(" "))
+    end if
+
+    if command == "dbu" then
+        append(shell, path_tasks, "dbu " + args.join(" "))
+    end if
+end function
+
+process_nmap = function(args)
+    if args.len != 1 or args[0] == "-h" or args[0] == "--help" then exit(command_info("nmap_usage"))	
+    if not is_valid_ip(args[0]) then exit("nmap: invalid ip address")
+    if not get_shell.host_computer.is_network_active then exit("nmap: No internet access.")
+
+    ipAddress = args[0]
+    isLanIp = is_lan_ip( ipAddress )
+
+    if isLanIp then
+    router = get_router;
+    else 
+    router = get_router( ipAddress )
+    end if
+
+    if router == null then exit("nmap: ip address not found")
+    ports = null
+
+    if not isLanIp then
+    ports = router.used_ports
+    else
+    ports = router.device_ports(ipAddress)
+    end if
+
+    if ports == null then exit("nmap: ip address not found")
+    if typeof(ports) == "string" then exit(ports)
+        
+    info = "PORT STATE SERVICE VERSION LAN"   
+    print("\nStarting nmap v1.1 at " + current_date)
+    print("Interesting ports on " + args[0] + "\n")
+    if(ports.len == 0) then exit("Scan finished. No open ports.")
+
+    for port in ports
+    service_info = router.port_info(port)
+    lan_ips = port.get_lan_ip
+    port_status = "open"
+
+    if(port.is_closed and not isLanIp) then
+        port_status = "closed"
+    end if
+    info = info + "\n" + port.port_number + " " + port_status + " " + service_info + " " + lan_ips
+    end for
+    print(format_columns(info) + "\n")
+end function
+
+process_scanroute = function(args)
+    if args.len != 1 or args[0] == "-h" or args[0] == "--help" then exit(command_info("scanrouter_usage"))
+    ipAddress = args[0]
+
+    router = get_router( ipAddress )
+    if router == null then exit("scanrouter: ip address not found")
+    print("Connecting to router at address: " + ipAddress + "\nScanning kernel library...")
+    version = router.kernel_version
+    if not version then
+        print("Warning: kernel_router.so not found")
+    else 
+        print("kernel_router.so : v" + version)
+    end if
+
+    firewall_rules = router.firewall_rules
+    if typeof(firewall_rules) == "string" then exit(firewall_rules)
+    print("\nScanning firewall rules...")
+    if firewall_rules.len == 0 then exit("No rules found.")
+    info = "ACTION PORT SOURCE_IP DESTINATION_IP"
+    for rules in firewall_rules
+        info = info + "\n" + rules
+    end for
+    print(format_columns(info) + "\n")
+end function
+
+process_ssh = function(args)
+    if args.len < 2 or args.len > 3 then exit(command_info("ssh_usage"))
+    credentials = args[0].split("@")
+    user = credentials[0]
+    password = credentials[1]
+
+    port = 22
+    // args is a list of strings, so you have to convert it to integer, which is what connect_service accepts.
+    if args.len == 3 then port = args[2].to_int
+    if typeof(port) != "number" then exit("Invalid port: " + port)
+    print("Connecting...")
+
+    shell = get_shell.connect_service(args[1], port, user, password, "ssh")
+    if typeof(shell) == "string" then exit(shell)
+    if shell then
+        if shared_simple_yes_or_no("Do you want to install the payload? (y/n)") then
+            shared_install_to_target(get_shell(), shell)
+        end if
+        shell.start_terminal()
+    else 
+        print("connection failed")
+    end if
+end function
+
+process_whois = function(args)
+    if args.len != 1 or args[0] == "-h" or args[0] == "--help" then
+        print(command_info("whois_usage"))
+    else
+        address = args[0]
+        print(whois(address))
+    end if
+end function
+
+process_smtp = function(args)
+    cryptools = include_lib("/lib/crypto.so")
+    if not cryptools then exit("Error: Missing crypto library")
+
+    if args.len == 0 or args.len > 2 or args[0] == "-h" or args[0] == "--help" then exit(command_info("smtpuserlist_usage"))	
+
+    ipAddress = args[0]
+    port = "25"
+    if(args.len > 1) then 
+    port = args[1]
+    end if
+
+    print("Connecting...")
+    users = cryptools.smtp_user_list(ipAddress, port.to_int)
+    if not users then exit("smtp_user_list: invalid parameters")
+    if(typeof(users) == "string") then exit(users)
+
+    print("Starting smtp-mail-list...\n\n###### Scan started ######")
+    for user in users
+    print(user)
+    end for
+    print("###### Scan completed ######\n" + users.len + " results.")
+end function
+
+process_sniffer = function(args)
+    if args.len == 1 and (args[0] == "-h" or args[0] == "--help" or args[0] != "-save") then exit(command_info("sniffer_usage"))
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then
+        metaxploit = include_lib(current_path + "/metaxploit.so")
+    end if
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+    print("Starting listen...\nWaiting to incoming data.")
+    output = metaxploit.sniffer(args.len == 1)
+    if not output then exit("Unknown error: can't start to listening")
+    print(output)
+end function
+
+append = function(sh, path, content)
+    c = sh.host_computer
+    f = c.File(path)
+    if not f then c.touch(parent_path(path), path.split("/")[-1])
+    f = c.File(path)
+    if not f then return false
+    return f.set_content(f.get_content() + content + char(10))
+end function
+
+if params.len == 0 then exit()
+command = params[0]
+args = params[1:]
+
+commands = { }
+commands.include = @process_include
+commands.file = @process_file
+commands.load = @process_load
+commands.dump = @process_dump
+commands.metaxploit = @process_metaxploit
+commands.status = @process_status
+commands.task = @process_task
+commands.get_router = @process_get_router
+commands.get_switch = @process_get_switch
+commands.files = @process_search_file
+commands.overflow = @process_overflow
+commands.network = @process_network
+commands.scan = @process_scan
+commands.letmein = @process_guided_hack
+commands.escalate = @process_escalate
+commands.nmap = @process_nmap
+commands.scanroute = @process_scanroute
+commands.ssh = @process_ssh
+commands.whois = @process_whois
+commands.smtp = @process_smtp
+commands.sniffer = @process_sniffer
+commands.credentials = @process_credentials
+
+if commands.hasIndex(command) then commands[command](args)
