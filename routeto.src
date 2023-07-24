@@ -1,0 +1,91 @@
+shared_route_build_path = function(routes, ip)
+	path = []
+	while routes.hasIndex(ip)
+		path.push(ip)
+		ip = routes[ip]
+	end while
+	return path
+end function
+
+shared_route_merge_path = function(path1, path2)
+	path = []
+	for p in path1
+		i = path2.indexOf(p)
+		if i == null then
+			path.push(p)
+		else
+			while i >= 0
+				path.push(path2[i])
+				i = i - 1
+			end while
+            return path
+		end if
+	end for
+	return []
+end function
+
+shared_routing = function()
+    router = get_router()
+    routes = {}
+	visited = {}
+
+    open = [ get_router() ]
+    routes[router.local_ip] = null
+    visited[router.local_ip] = true
+
+    while open.len > 0
+        router = open.pop()
+        devices = router.devices_lan_ip
+
+        for d in devices
+            if visited.hasIndex(d) then continue
+
+            routes[d] = router.local_ip
+			visited[d] = true
+            r = get_router(d)
+            if r then open.push(r)
+        end for
+    end while
+
+	return routes
+end function
+
+shared_routing_blocker = function(shell, path)
+	i = path.len - 1
+	while i >= 0
+		if shell.ping(path[i]) == true then return path[i]
+		i = i - 1
+	end while
+end function
+
+if params.len == 0 then exit("Usage: " + program_path.split("/")[-1] + " [target_ip (source_ip)]")
+
+shell = get_shell()
+source_ip = shell.host_computer.local_ip
+target_ip = params[0]
+
+if not shell.host_computer.is_network_active then exit("No network access.")
+if params.len > 1 then source_ip = params[1]
+if not is_valid_ip(target_ip) or not is_lan_ip(target_ip) then exit("Target ip must be valid and local address.")
+if not is_valid_ip(source_ip) or not is_lan_ip(source_ip) then exit("Source ip must be valid and local address.")
+
+if source_ip != shell.host_computer.local_ip then
+    print("Warning: We cannot check reachability when the source IP is set.")
+end if
+
+routing = shared_routing()
+path_to_target = shared_route_build_path(routing, target_ip)
+path_to_source = shared_route_build_path(routing, source_ip)
+path_from_source_to_target = shared_route_merge_path(path_to_source, path_to_target)
+
+print("Path between the source and target computer:")
+print(path_from_source_to_target.join(" -> "))
+
+if source_ip == shell.host_computer.local_ip then
+    first_blocking_ip = shared_routing_blocker(shell, path_from_source_to_target)
+    if first_blocking_ip == target_ip then
+        print("Target reachable.")
+    else
+        print("Connection blocked by: " + first_blocking_ip)
+    end if
+end if
