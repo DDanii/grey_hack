@@ -29,29 +29,32 @@ shared_route_merge_path = function(path1, path2)
 				path.push(path2[i])
 				i = i - 1
 			end while
+            return path
 		end if
 	end for
-	return path
+	return []
 end function
 
-shared_route_to = function()
+shared_routing = function()
+    router = get_router()
     routes = {}
 	visited = {}
+
     open = [ get_router() ]
-	visited[open[0].local_ip] = true
-	routes[open[0].local_ip] = null
+    routes[router.local_ip] = null
+    visited[router.local_ip] = true
+
     while open.len > 0
         router = open.pop()
         devices = router.devices_lan_ip
+
         for d in devices
-			if visited.hasIndex(d) then continue
-			routes[d] = router.local_ip
+            if visited.hasIndex(d) then continue
+
+            routes[d] = router.local_ip
 			visited[d] = true
-			
             r = get_router(d)
-            if r then 
-				open.push(r)
-			end if
+            if r then open.push(r)
         end for
     end while
 
@@ -1298,7 +1301,7 @@ process_guided_hack = function(args)
     if is_local_ip and shell.ping(ip) == false then
         print("Warrning target not reachable.")
 
-        routes = shared_route_to()
+        routes = shared_routing()
         path1 = shared_route_build_path(routes, computer.local_ip)
         path2 = shared_route_build_path(routes, ip)
         path3 = shared_route_merge_path(path1, path2)
