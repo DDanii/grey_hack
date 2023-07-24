@@ -1,0 +1,61 @@
+shared_print_tree_type = function(router, device)
+    switch = get_switch(device)
+    if switch then return "switch"
+    r = get_router(device)
+    if r then return "router"
+    ports = router.device_ports(device)
+    if ports == null or typeof(ports) == "string" then return "unknow"
+    if ports.len == 0 then return "computer"
+    for p in ports
+        service = router.port_info(p)
+        if service.indexOf("cam ") >= 0 then return "camera"
+    end for
+    return "server"
+end function
+
+shared_print_tree = function(router, indent, parent, visited, columns)
+    label = router.local_ip
+    type = shared_print_tree_type(router, router.local_ip)
+
+    if visited.hasIndex(router.local_ip) then return
+    visited[router.local_ip] = true
+
+    if parent == null then
+        columns.push( [label, type] )
+    else
+        columns.push( [indent + "+- " + label, type] )
+    end if
+
+    devices = router.devices_lan_ip
+    childs = []
+    for d in devices
+        r = get_router(d)
+        if r == null then 
+            type = shared_print_tree_type(router, d)
+            columns.push( [indent + "+- " + d, type] )
+        else if r.local_ip != router.local_ip then 
+            childs.push(r)
+        end if
+    end for
+    
+    for r in childs
+        shared_print_tree(r, indent + "   ", router, visited, columns)
+    end for
+end function
+
+router = get_router()
+public_ip = router.public_ip
+columns = []
+shared_print_tree(router, "", null, {}, columns)
+
+max = 0
+for c in columns
+    if max < c[0].len then max = c[0].len
+end for
+
+print(public_ip)
+print((" " * (public_ip.len / 2) ) + "|")
+for c in columns
+    c[0] = c[0] + " " * (max - c[0].len)
+    print(c.join("  "))
+end for
