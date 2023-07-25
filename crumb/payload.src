@@ -61,6 +61,16 @@ shared_routing = function()
 	return routes
 end function
 
+shared_ask_number = function(label, min, max)
+    print()
+    while true
+        s = user_input(label, false, false)
+        if s == "q" or s == "x" then return null
+        n = s.to_int
+        if typeof(n) == "number" and n >= min and n <= max then return n
+    end while
+end function
+
 shared_ask_select = function(label, values)
     print("-- Select:")
 
@@ -989,6 +999,70 @@ shared_overflow_has_root = function(passwords)
     return false
 end function
 
+shared_overflow_has_user = function(passwords)
+    for p in passwords
+        if p.indexOf(":user:") >= 0 then return true
+    end for
+    return false
+end function
+
+shared_overflow_print_status = function(public_ip, local_ip, public_info)
+    print()
+    print("Public IP = " + public_ip)
+    print("Local IP = " + local_ip)
+    if public_info and public_info.indexes.len > 0 then
+        print("Domain = " + public_info["Domain name"])
+        print("Admin Name = " + public_info["Administrative contact"])
+        print("Admin Email = " + public_info["Email address"])
+        print("Phone = " + public_info["Phone"])
+    end if
+end function
+
+shared_overflow_print = function(credentials, shells, ssh_servers, ftps_servers)
+
+    print("Captured credentials: " + credentials.indexes.len)
+    if credentials.indexes.len > 0 then
+        output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
+        for v in credentials.indexes
+            u = credentials[v]
+            output = output + "\n" + u.un + " " + u.pwd + " " + u.type + " " + u.pip + " " + u.lip
+        end for
+        print(format_columns(output))
+        print()
+    end if
+
+    if ssh_servers.len > 0 then
+        print("Available ssh servers:")
+        output = "PUBLIC_IP PORT LOCAL_IP"
+        for s in ssh_servers
+            output = output + "\n" + s.join(" ")
+        end for
+        print(format_columns(output))
+        print()
+    end if
+
+    if ftps_servers.len > 0 then
+        print("Available ftp servers:")
+        output = "PUBLIC_IP PORT LOCAL_IP"
+        for s in ftps_servers
+            output = output + "\n" + s.join(" ")
+        end for
+        print(format_columns(output))
+        print()
+    end if
+
+    if shells.len > 0 then
+        print("Captured shells: " + shells.len)
+        output = "ID IP PORT USER CURRENT_DIRECTORY LIB VERSION MEMORY VALUE"
+        for s in shells
+            output = output + "\n" + s[0] + " " + s[3].lip + " " + s[3].port + " " + s[1]["active_user"] + " " + s[1]["current_path"] + " " + s[4][0] + " " + s[4][1] +  " " + s[4][2] + " " + s[4][3]
+        end for
+        print(format_columns(output))
+        print()
+    end if
+
+end function
+
 shared_overflow = function(shell, targets, vulns, metaxploit, crypto, remote_decrypt, cc_server, shells, credentials, full_overflow, decrypt_all_credentials)
 
     modified = []
@@ -1048,6 +1122,7 @@ shared_overflow = function(shell, targets, vulns, metaxploit, crypto, remote_dec
             if not stage_change then stage = stage + 1
 
         end while
+
     end if
 
     shared_process_db_update(shell, modified, remote_decrypt, cc_server, "/home/guest/time0")
@@ -1072,7 +1147,7 @@ process_escalate = function(args)
 
     shell = get_shell()
     computer = shell.host_computer
-    cc_server = ["start", "*.*.*.*", "*"]
+    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
     remote_decrypt = true
     crypto = null
 
@@ -1103,6 +1178,12 @@ process_escalate = function(args)
     overflow_full = false
     overflow_credentials = false
 
+    if public_info and public_info.indexes.len > 0 then
+        admin_email = public_info["Email address"]
+        admin_name = public_info["Administrative contact"]
+        current_domain = public_info["Domain name"]
+    end if
+
     if args.indexOf("-full") != null then
         overflow_full = true
     end if
@@ -1129,39 +1210,14 @@ process_escalate = function(args)
 
     shared_overflow(shell, targets, vulns, metaxploit, crypto, remote_decrypt, cc_server, shells, credentials, overflow_full, overflow_credentials)
 
-    print()
-    print("Public IP = " + computer.public_ip)
-    print("Local IP = " + computer.local_ip)
-    if public_info and public_info.indexes.len > 0 then
-        admin_email = public_info["Email address"]
-        admin_name = public_info["Administrative contact"]
-        current_domain = public_info["Domain name"]
-
-        print("Domain = " + current_domain)
-        print("Admin Name = " + admin_name)
-        print("Admin Email = " + admin_email)
-        print("Phone = " + public_info["Phone"])
-    end if
-    print("Current user = " + active_user + " (email: " + user_mail_address + ", bank: " + user_bank_number + ")")
-
-    print()
-    print("Captured credentials:")
-    output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
     for v in credentials.indexes
         u = credentials[v]
         if u.type == "mail" then mail_access.push(u)
-        output = output + "\n" + u.un + " " + u.pwd + " " + u.type + " " + u.pip + " " + u.lip
     end for
-    print(format_columns(output))
-    print()
 
-    print("Captured shells:")
-    output = "ID IP PORT USER CURRENT_DIRECTORY LIB VERSION MEMORY VALUE"
-    for s in shells
-        output = output + "\n" + s[0] + " " + s[3].lip + " " + s[3].port + " " + s[1]["active_user"] + " " + s[1]["current_path"] + " " + s[4][0] + " " + s[4][1] +  " " + s[4][2] + " " + s[4][3]
-    end for
-    print(format_columns(output))
-    print()
+    shared_overflow_print_status( computer.public_ip, computer.local_ip, public_info)
+    print("Current user = " + active_user + " (email: " + user_mail_address + ", bank: " + user_bank_number + ")")
+    shared_overflow_print(credentials, shells, [], [])
 
     for s in shells
         if s[1]["active_user"] == "root" then
@@ -1247,7 +1303,7 @@ process_guided_hack = function(args)
     ip = args[0]
     is_local_ip = is_lan_ip(ip)
     router = null
-    cc_server = ["start", "*.*.*.*", "*"]
+    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
     remote_decrypt = true
     shell = get_shell()
     computer = shell.host_computer
@@ -1290,7 +1346,13 @@ process_guided_hack = function(args)
     end if
 
     if router == null then exit("IP not found.")
+
     public_info = shared_whois(router.public_ip)
+    if public_info and public_info.indexes.len > 0 then
+        admin_email = public_info["Email address"]
+        admin_name = public_info["Administrative contact"]
+        current_domain = public_info["Domain name"]
+    end if
 
     if is_local_ip then
         ports = router.device_ports(ip)
@@ -1337,58 +1399,8 @@ process_guided_hack = function(args)
     end for
 
     shared_overflow(shell, targets, vulns, metaxploit, crypto, remote_decrypt, cc_server, shells, credentials, overflow_full, overflow_credentials)
-
-    print()
-    print("Public IP = " + router.public_ip)
-
-    if public_info and public_info.indexes.len > 0 then
-        admin_email = public_info["Email address"]
-        admin_name = public_info["Administrative contact"]
-        current_domain = public_info["Domain name"]
-
-        print("Domain = " + current_domain)
-        print("Admin Name = " + admin_name)
-        print("Admin Email = " + admin_email)
-        print("Phone = " + public_info["Phone"])
-    end if
-
-    print()
-    print("Captured credentials:")
-    output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
-    for v in credentials.indexes
-        u = credentials[v]
-        output = output + "\n" + u.un + " " + u.pwd + " " + u.type + " " + u.pip + " " + u.lip
-    end for
-    print(format_columns(output))
-    print()
-
-    if ssh_servers.len > 0 then
-        print("Available ssh servers:")
-        output = "PUBLIC_IP PORT LOCAL_IP"
-        for s in ssh_servers
-            output = output + "\n" + s.join(" ")
-        end for
-        print(format_columns(output))
-        print()
-    end if
-
-    if ftps_servers.len > 0 then
-        print("Available ftp servers:")
-        output = "PUBLIC_IP PORT LOCAL_IP"
-        for s in ftps_servers
-            output = output + "\n" + s.join(" ")
-        end for
-        print(format_columns(output))
-        print()
-    end if
-
-    print("Captured shells:")
-    output = "ID IP PORT USER CURRENT_DIRECTORY LIB VERSION MEMORY VALUE"
-    for s in shells
-        output = output + "\n" + s[0] + " " + s[3].lip + " " + s[3].port + " " + s[1]["active_user"] + " " + s[1]["current_path"] + " " + s[4][0] + " " + s[4][1] +  " " + s[4][2] + " " + s[4][3]
-    end for
-    print(format_columns(output))
-    print()
+    shared_overflow_print_status( router.public_ip, "", public_info)
+    shared_overflow_print(credentials, shells, ssh_servers, ftps_servers)
 
     if shells.len > 0 then
         index = user_input(": ")
@@ -1415,7 +1427,7 @@ process_guided_hack = function(args)
 end function
 
 process_credentials = function(args)
-    cc_server = ["start", "*.*.*.*", "*"]
+    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
     remote_decrypt = true
     passwords = []
     shell = get_shell()
@@ -1432,16 +1444,8 @@ process_credentials = function(args)
     end if
 
     shared_search_passwords(root, passwords, computer.public_ip + ":" + computer.local_ip)
-    shared_process_password(shell, passwords, crypto, remote_decrypt, cc_server, "/home/guest/autohack_passwords_1", credentials)
-
-    print()
-    print("Captured credentials:")
-    output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
-    for v in credentials.indexes
-        u = credentials[v]
-        output = output + "\n" + u.un + " " + u.pwd + " " + u.type + " " + u.pip + " " + u.lip
-    end for
-    print(format_columns(output))
+    shared_process_password(shell, passwords, crypto, remote_decrypt, cc_server, "/home/guest/time_1", credentials)
+    shared_overflow_print(credentials, [], [], [])
 
 end function
 

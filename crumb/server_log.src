@@ -1,13 +1,13 @@
 log_setup = function(lsh, location)
     f = lsh.host_computer.File(location)
     if f == null then
-        f = mkfile(location)
+        f = mkfile(lsh, location)
         if f == null then 
             print("Warrning: log location not valid")
             return
         end if
     end if
-    global.log_location = f
+    globals.log_location = f
 end function
 
 log_append = function(message, silence = false)
@@ -17,8 +17,9 @@ end function
 
 log_flush = function()
     if not globals.log_location then return
-    if globals.log_entires.len > 0 then
-        content = globals.log_location.get_content() + globals.log_entries.join(char(10))
+    if globals.log_entries.len > 0 then
+        content = globals.log_location.get_content() + globals.log_entries.join(char(10)) + char(10)
+        globals.log_location.set_content(content)
         globals.log_entries = []
     end if
 end function

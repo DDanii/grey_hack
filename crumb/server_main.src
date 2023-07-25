@@ -42,6 +42,7 @@ while true
 	if typeof(shells) == "string" then exit(shells)
 	
 	for sh in shells
+		log_flush()
 		log_append("Connected from IP: " + sh.host_computer.public_ip + " ( " + sh.host_computer.local_ip + " )", true)
 
 		f = sh.host_computer.File(tasks)
@@ -71,7 +72,7 @@ while true
 		else
 			remote_launch(sh, payload, "task clear")
 		end if
-
+		log_flush()
 	end for
 
 	wait(2)

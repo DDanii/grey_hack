@@ -29,10 +29,10 @@ scan = function(metaxploit, metaLib, args)
                     e = line.indexOf("<", s)
                     value = line[s:e]
                     vulns.push(r + " " + value)
-                    log_append("<b>payload overflow " + args.join(" ") + " " + r + " " + value + "</b>")
+                    print("<b>payload overflow " + args.join(" ") + " " + r + " " + value + "</b>")
                 else if line.indexOf("*") == 0 then
                     vulns.push(line)
-                    log_append(line)
+                    print(line)
                 end if
             end for
         end for
