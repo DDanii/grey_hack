@@ -34,7 +34,6 @@ rsshd_installer = function(sh, payload, repo)
     rshelld = rsshd_installer_jump(sh).librshell
 
     if not rshelld then
-        sh.launch("/bin/apt-get", "update")
         sh.launch("/bin/apt-get", "addrepo " + repo)
         sh.launch("/bin/apt-get", "update")
         sh.launch("/bin/apt-get", "install librshell.so")
@@ -48,6 +47,11 @@ rsshd_installer = function(sh, payload, repo)
     output = rshelld.start_service()
 
     return rshelld
+end function
+
+update_local = function(sh)
+    sh.launch("/bin/apt-get", "update")
+    sh.launch("/bin/apt-get", "upgrade")
 end function
 
 connect_to_bounce = function(stack, payload, ip, port, user, pass)

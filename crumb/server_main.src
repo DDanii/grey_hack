@@ -22,6 +22,8 @@ if params.len > 0 then bounce_file = params[0]
 if not stack[0].host_computer.File(bounce_file) then exit("Can't find connections file.")
 
 print("Repository = " + repository_ip[:5])
+update_local(stack[0])
+
 print("Connections from " + bounce_file)
 connect_to_bounces(stack, payload, bounce_file)
 
