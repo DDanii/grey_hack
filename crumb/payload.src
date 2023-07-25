@@ -1,4 +1,56 @@
+
 // TODO: need some update mechanic for remote computers
+
+shared_mail_extract_data = function(mail)
+    result = []
+
+	cursor = 0
+    while cursor < mail.len
+	    s = mail.indexOf("<b>", cursor)
+        if s == null then break
+		s = s + 3
+	    e = mail.indexOf("</b>", s)
+        if e == null then break
+        result.push(mail[s:e])
+        cursor = e
+    end while
+
+    return result
+end function
+
+shared_mail_last_mission = function(mailbox, type)
+
+    types = {
+        "credential": "The client wants the login credentials of",
+    }
+
+    if not mailbox then return []
+    if not types.hasIndex(type) then return []
+	
+    list = mailbox.fetch()
+    for i in list
+        if i.indexOf("Subject: Mission Contract") == null then continue
+        if i.indexOf(types[type]) == null then continue	
+        x = i.indexOf("MailID:")
+        if x == null then continue
+        id = i[x + 8 : x + 8 + 36]
+        mail = mailbox.read(id)
+
+        if mail == null or mail == "" then continue
+        if mail.indexOf("The customer is satisfied with the job.") != null then continue
+        x = mail.indexOf("From: ")
+        if x == null then continue
+        y = mail.indexOf(char(10), x)
+
+        if y == null then continue
+        mail_from = mail[x + 6: y]
+        inputs = shared_mail_extract_data(mail)
+        inputs.push(mail_from)
+        inputs.push(id)
+        return inputs
+    end for
+	return null
+end function
 
 shared_routing_blocker = function(shell, path)
 	shell = get_shell()
@@ -217,7 +269,13 @@ shared_shell_crumb = function(shell, parameters)
 
 shell_script = [
 "result = null",
+"if params.indexOf(""metaxploit"") == 0 then",
+"result = include_lib(""/home/guest/metaxploit.so"")",
+"if not result then result = include_lib(""/lib/metaxploit.so"")",
+"end if",
 "if params.indexOf(""status"") == 0 then",
+"mx = include_lib(""/home/guest/metaxploit.so"")",
+"if not mx then mx = include_lib(""/lib/metaxploit.so"")",
 "result = {}",
 "result[""active_user""] = active_user",
 "result[""current_date""] = current_date",
@@ -226,6 +284,7 @@ shell_script = [
 "result[""user_bank_number""] = user_bank_number",
 "result[""user_mail_address""] = user_mail_address",
 "result[""home_dir""] = home_dir",
+"result[""metaxploit""] = mx",
 "end if",
 "if params.indexOf(""shell"") == 0 and params.len > 2 then",
 "result = get_shell(params[1], params[2])",
@@ -269,31 +328,38 @@ shared_process_db_update = function(shell, modified, remote, cc_server, signal_f
     end if
 end function
 
-shared_process_password = function(shell, passwords, crypto, remote, cc_server, signal_file, credentials)
-    if passwords.len > 0 then
+shared_process_password = function(shell, crypto, remote, cc_server, signal_file, credentials)
+    keys = credentials.indexes
+    if keys.len > 0 then
         if remote then
-            passwords.insert(0, "decrypt")
-            passwords.insert(0, "add")
-            process_task(passwords)
-            process_task(["add", "signal", signal_file])
-            process_task(cc_server)
-            shared_wait_for_signal(shell, "Waiting to decrypt some password...", signal_file)
-            shared_read_password_from_file(shell, "/home/guest/passwords.txt", credentials)
+
+            passwords = []
+            for k in keys
+                u = credentials[k]
+                if u.dec then continue
+                passwords.push(u.un + ":" + u.pwd + ":" + u.type + ":" + u.pip + ":" + u.lip)
+            end for
+
+            if passwords.len > 0 then
+                passwords.insert(0, "decrypt")
+                passwords.insert(0, "add")
+                process_task(passwords)
+                process_task(["add", "signal", signal_file])
+                process_task(cc_server)
+                shared_wait_for_signal(shell, "Waiting to decrypt some password...", signal_file)
+                shared_read_password_from_file(shell, "/home/guest/passwords.txt", credentials)
+            end if
         else
             
-            for p in passwords
-                fields = p.split(":")
-                pwd = crypto.decipher(fields[1])
+            for k in keys
+                u = credentials[k]
+                if u.dec then continue
+                pwd = crypto.decipher(u.pwd)
                 if not pwd then 
-                    print("Can't decrypt password: " + fields[1])
+                    print("Can't decrypt password: " + u.pwd)
                 else
-                    x = {}
-                    x.un = fields[0]
-                    x.pwd = pwd
-                    x.type = fields[2]
-                    x.pip = fields[3]
-                    x.lip = fields[4]
-                    credentials[x.un] = x
+                    u.pwd = pwd
+                    u.dec = true
                 end if
             end for
 
@@ -311,33 +377,44 @@ shared_read_password_from_file = function(shell, path, credentials)
     for l in lines
         if l == "" then continue
         fields = l.split(":")
-        x = {}
-        x.un = fields[0]
-        x.pwd = fields[1]
-        x.type = fields[2]
-        x.pip = fields[3]
-        x.lip = fields[4]
-        credentials[x.un] = x
+        if credentials.hasIndex(fields[0]) then
+            credentials[fields[0]].pwd = fields[1]
+            credentials[fields[0]].dec = true
+        else
+            x = {}
+            x.un = fields[0]
+            x.pwd = fields[1]
+            x.type = fields[2]
+            x.pip = fields[3]
+            x.lip = fields[4]
+            x.dec = true
+            credentials[x.un] = x
+        end if
     end for
 end function
 
-shared_search_passwords_append = function(f, passwords, metadata)
+shared_search_passwords_append = function(f, credentials, type, pip, lip)
     if not f then return
     content = f.get_content()
     if not content then return
     lines = content.split("\n")
     for l in lines
         if l == "" then continue
-        existed = null
-        for p in passwords
-            existed = p.indexOf(l)
-            if existed == 0 then break
-        end for
-        if existed == null then passwords.push(l + ":" + metadata)
+        d = l.split(":")
+        if not credentials.hasIndex(d[0]) then 
+            credentials[d[0]] = {
+                "un": d[0],
+                "pwd": d[1],
+                "type": type,
+                "pip": pip,
+                "lip": lip,
+                "dec": false,
+            }
+        end if
     end for
 end function
 
-shared_search_passwords = function(object, passwords, source)
+shared_search_passwords = function(object, credentials, pip, lip)
     root = null
     
     if typeof(object) == "shell" then
@@ -364,9 +441,9 @@ shared_search_passwords = function(object, passwords, source)
             files = current.get_files()
             for f in files
                 if f.is_binary() then continue
-                if f.path.indexOf("/passwd") != null then shared_search_passwords_append(f, passwords, "user:" + source)
-                if f.path.indexOf("/Bank.txt") != null then shared_search_passwords_append(f, passwords, "bank:" + source)
-                if f.path.indexOf("/Mail.txt") != null then shared_search_passwords_append(f, passwords, "mail:" + source)
+                if f.path.indexOf("/passwd") != null then shared_search_passwords_append(f, credentials, "user", pip, lip)
+                if f.path.indexOf("/Bank.txt") != null then shared_search_passwords_append(f, credentials, "bank", pip, lip)
+                if f.path.indexOf("/Mail.txt") != null then shared_search_passwords_append(f, credentials, "mail", pip, lip)
             end for
         end while
     end if
@@ -1054,7 +1131,7 @@ process_scan = function(args)
 end function
 
 
-shared_overflow_item = function(metaxploit, t, fields, remote_decrypt, know_types, possible_type, modified, passwords, shells)
+shared_overflow_item = function(metaxploit, t, fields, has_server, modified, credentials, shells)
     result = null
 
     if t.net then
@@ -1067,12 +1144,12 @@ shared_overflow_item = function(metaxploit, t, fields, remote_decrypt, know_type
         result = t.lib.overflow(fields[2], fields[3])
     end if
 
-    if remote_decrypt and fields[4] == "unknow" and result != null then
+    if has_server and fields[4] == "unknow" and result != null then
 
         type = typeof(result)
-        print(type)
-        if know_types.indexOf(type) == null then
-            type = shared_ask_select("Which type of exploit?", possible_type)
+
+        if type == "number" then
+            if t.router then type = "firewall" else type = "password"
         end if
 
         if type then
@@ -1082,20 +1159,25 @@ shared_overflow_item = function(metaxploit, t, fields, remote_decrypt, know_type
 
     end if
     
-    shared_search_passwords(result, passwords, t.pip + ":" + t.lip)
+    shared_search_passwords(result, credentials, t.pip, t.lip)
+
     if typeof(result) == "shell" then
         shell_info = shared_shell_get_info(result)
-        shells.push( [shells.len, shell_info, result, t, fields] )
+        s = {
+            "id": shells.len,
+            "info": shell_info,
+            "shell": result,
+            "target": t,
+            "vuln": fields,
+        }
+        shells.push( s )
     end if
 
     return result
 end function
 
-shared_overflow_has_root = function(passwords)
-    for p in passwords
-        if p.indexOf("root:") == 0 then return true
-    end for
-    return false
+shared_overflow_has_root = function(credentials)
+    return credentials.hasIndex("root")
 end function
 
 shared_overflow_has_user = function(passwords)
@@ -1124,6 +1206,7 @@ shared_overflow_print = function(credentials, shells, ssh_servers, ftps_servers)
         output = "USERNAME PASSWORD TYPE PUBLIC_IP LOCAL_IP"
         for v in credentials.indexes
             u = credentials[v]
+            if not u.dec then continue
             output = output + "\n" + u.un + " " + u.pwd + " " + u.type + " " + u.pip + " " + u.lip
         end for
         print(format_columns(output))
@@ -1154,7 +1237,7 @@ shared_overflow_print = function(credentials, shells, ssh_servers, ftps_servers)
         print("Captured shells: " + shells.len)
         output = "ID IP PORT USER CURRENT_DIRECTORY LIB VERSION MEMORY VALUE"
         for s in shells
-            output = output + "\n" + s[0] + " " + s[3].lip + " " + s[3].port + " " + s[1]["active_user"] + " " + s[1]["current_path"] + " " + s[4][0] + " " + s[4][1] +  " " + s[4][2] + " " + s[4][3]
+            output = output + "\n" + s.id + " " + s.target.lip + " " + s.target.port + " " + s.info.active_user + " " + s.info.current_path + " " + s.vuln[0] + " " + s.vuln[1] +  " " + s.vuln[2] + " " + s.vuln[3]
         end for
         print(format_columns(output))
         print()
@@ -1165,16 +1248,13 @@ end function
 shared_overflow = function(shell, targets, vulns, metaxploit, crypto, remote_decrypt, cc_server, shells, credentials, full_overflow, decrypt_all_credentials)
 
     modified = []
-    know_types = ["shell", "computer", "file"]
-    possible_type = ["password", "firewall", "unknow"]
-    passwords = []
     stages = [ ["file", "computer"], ["unknow"], ["shell"], ["unknow"] ]
 
     if full_overflow then
         for fields in vulns
             for t in targets
                 if fields[0] == t.lib_name and fields[1] == t.version then
-                    shared_overflow_item(metaxploit, t, fields, remote_decrypt, know_types, possible_type, modified, passwords, shells)
+                    shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
                 end if
             end for
         end for
@@ -1195,9 +1275,9 @@ shared_overflow = function(shell, targets, vulns, metaxploit, crypto, remote_dec
         
                 for t in targets
                     if fields[0] == t.lib_name and fields[1] == t.version then
-                        shared_overflow_item(metaxploit, t, fields, remote_decrypt, know_types, possible_type, modified, passwords, shells)
+                        shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
 
-                        if has_root_credentials == false and shared_overflow_has_root(passwords) then
+                        if has_root_credentials == false and shared_overflow_has_root(credentials) then
                             has_root_credentials = true
                             stage = stage + 2
                             stage_change = true
@@ -1226,15 +1306,15 @@ shared_overflow = function(shell, targets, vulns, metaxploit, crypto, remote_dec
 
     shared_process_db_update(shell, modified, remote_decrypt, cc_server, "/home/guest/time0")
 
+    x = credentials
     if not (full_overflow or decrypt_all_credentials) then
-        temp = []
-        for p in passwords
-            if p.indexOf(":user:") >= 0 then temp.push(p)
+        x = {}
+        for p in credentials.indexes
+            if credentials[p].type == "user" then x[p] = credentials[p]
         end for
-        passwords = temp
     end if
 
-    shared_process_password(shell, passwords, crypto, remote_decrypt, cc_server, "/home/guest/time1", credentials)
+    shared_process_password(shell, crypto, remote_decrypt, cc_server, "/home/guest/time1", x)
 end function
 
 process_escalate = function(args)
@@ -1246,7 +1326,7 @@ process_escalate = function(args)
 
     shell = get_shell()
     computer = shell.host_computer
-    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
+    cc_server = ["start", "69.54.9.95", "26"]
     remote_decrypt = true
     crypto = null
 
@@ -1264,7 +1344,6 @@ process_escalate = function(args)
     targets = []
     shells = []
     credentials = {}
-    passwords = []
     mail_access = []
     admin_email = null
     admin_name = null
@@ -1298,14 +1377,14 @@ process_escalate = function(args)
     for lf in files
         lib = metaxploit.load(lf.path)
         if lib then 
-            targets.push({ "net": false, "lib": lib, "path": lf.path, "lib_name": lib.lib_name, "version": lib.version, "pip": computer.public_ip, "lip": computer.local_ip, "port": -1 })
+            targets.push({ "net": false, "lib": lib, "path": lf.path, "lib_name": lib.lib_name, "version": lib.version, "pip": computer.public_ip, "lip": computer.local_ip, "port": -1, "router": lib.lib_name == "kernel_router.so" })
         end if
     end for
 
     vulns = shared_process_scan(shell, targets, metaxploit, remote_decrypt, cc_server, "/home/guest/escalate_collecting")
 
     f = computer.File("/etc/passwd")
-    shared_search_passwords(f, passwords, computer.public_ip + ":" + computer.local_ip)
+    shared_search_passwords(f, credentials, computer.public_ip + ":" + computer.local_ip)
 
     shared_overflow(shell, targets, vulns, metaxploit, crypto, remote_decrypt, cc_server, shells, credentials, overflow_full, overflow_credentials)
 
@@ -1319,9 +1398,9 @@ process_escalate = function(args)
     shared_overflow_print(credentials, shells, [], [])
 
     for s in shells
-        if s[1]["active_user"] == "root" then
+        if s.info.active_user == "root" then
             print("We got root shell.")
-            s[2].start_terminal()
+            s.shell.start_terminal()
         end if
     end for
 
@@ -1380,7 +1459,7 @@ process_escalate = function(args)
     if shells.len > 0 then
         index = user_input("Shell: ")
         if index == "" or index == "x" then return
-        shells[index.to_int][2].start_terminal()
+        shells[index.to_int].shell.start_terminal()
     end if
 
     if email_sended and shared_simple_yes_or_no("Try again (y/n)") then
@@ -1402,7 +1481,7 @@ process_guided_hack = function(args)
     ip = args[0]
     is_local_ip = is_lan_ip(ip)
     router = null
-    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
+    cc_server = ["start", "69.54.9.95", "26"]
     remote_decrypt = true
     shell = get_shell()
     computer = shell.host_computer
@@ -1482,12 +1561,12 @@ process_guided_hack = function(args)
             
             lib_name = shared_lookup_service_lib(pi[0])
             if not lib_name or lib_name == "" then continue
-            targets.push({ "net": true, "lib": null, "path": null, "lib_name": lib_name, "version": pi[1], "pip": ip, "lip": port.get_lan_ip(), "port": port.port_number })
+            targets.push({ "net": true, "lib": null, "path": null, "lib_name": lib_name, "version": pi[1], "pip": ip, "lip": port.get_lan_ip(), "port": port.port_number, "router": false })
         end for
     end if
 
     if not is_lan_ip or router.local_ip == ip then
-        targets.push({ "net": true, "lib": null, "path": null, "lib_name": "kernel_router.so", "version": router.kernel_version, "pip": ip, "lip": router.local_ip, "port": 0 })
+        targets.push({ "net": true, "lib": null, "path": null, "lib_name": "kernel_router.so", "version": router.kernel_version, "pip": ip, "lip": router.local_ip, "port": 0, "router": true })
     end if
 
     vulns = shared_process_scan(shell, targets, metaxploit, remote_decrypt, cc_server, "/home/guest/collecting")
@@ -1505,8 +1584,8 @@ process_guided_hack = function(args)
         index = user_input(": ")
         if index == "" or index == "x" then return
         ish = shells[index.to_int]
-        rsh = ish[2]
-        if ish[1]["active_user"] != "root" and credentials.hasIndex("root") then
+        rsh = ish.shell
+        if ish.info.active_user != "root" and credentials.hasIndex("root") then
 
             print()
             if shared_simple_yes_or_no("We know the network root password. Do yo want to escalating? (y/n)") then
@@ -1526,9 +1605,8 @@ process_guided_hack = function(args)
 end function
 
 process_credentials = function(args)
-    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
+    cc_server = ["start", "69.54.9.95", "26"]
     remote_decrypt = true
-    passwords = []
     shell = get_shell()
     computer = shell.host_computer
     root = get_shell().host_computer.File("/")
@@ -1542,9 +1620,417 @@ process_credentials = function(args)
         if not crypto then exit("Error: Can't find crypto library in the /lib path or the current folder")
     end if
 
-    shared_search_passwords(root, passwords, computer.public_ip + ":" + computer.local_ip)
-    shared_process_password(shell, passwords, crypto, remote_decrypt, cc_server, "/home/guest/time_1", credentials)
+    shared_search_passwords(root, credentials, computer.public_ip + ":" + computer.local_ip)
+    shared_process_password(shell, crypto, remote_decrypt, cc_server, "/home/guest/time_1", credentials)
     shared_overflow_print(credentials, [], [], [])
+
+end function
+
+process_mission_credential_letmein = function(shell, ip, credentials, shells, mission_target, mission_user, local_shell, crypto, metaxploit, remote_decrypt, cc_server, modified)
+    targets = []
+    router = null
+    is_local_ip = is_lan_ip(ip)
+    target_local_ip = ip
+
+    if is_local_ip then
+        router = get_router(ip)
+        if not router then router = get_router()
+    else
+        router = get_router(ip)
+    end if
+
+    if router == null then return null
+
+    if is_local_ip and shell.ping(ip) == false then
+        print("Warrning target not reachable.")
+
+        routes = shared_routing()
+        path1 = shared_route_build_path(routes, computer.local_ip)
+        path2 = shared_route_build_path(routes, ip)
+        path3 = shared_route_merge_path(path1, path2)
+        next_target = shared_routing_blocker(shell, path3)
+        if is_valid_ip(next_target) then
+            print("Redirected to next target = " + next_target)
+            return process_mission_credential_letmein(shell, next_target, credentials, shells, mission_target, mission_user, local_shell, crypto, metaxploit, remote_decrypt, cc_server, modified)
+        end if        
+        return null
+    end if
+
+    if is_local_ip then
+        ports = router.device_ports(ip)
+    else
+        ports = router.used_ports()
+        target_local_ip = router.local_ip
+    end if
+
+    if typeof(ports) != "string" then
+        for port in ports
+            pi = router.port_info(port).split(" ")
+            if not is_local_ip and port.is_closed() then continue
+            
+            lib_name = shared_lookup_service_lib(pi[0])
+            if not lib_name or lib_name == "" then continue
+            targets.push({ "net": true, "lib": null, "path": null, "lib_name": lib_name, "version": pi[1], "pip": ip, "lip": port.get_lan_ip(), "port": port.port_number, "router": false })
+        end for
+    end if
+
+    if not is_lan_ip or router.local_ip == ip then
+        targets.push({ "net": true, "lib": null, "path": null, "lib_name": "kernel_router.so", "version": router.kernel_version, "pip": ip, "lip": router.local_ip, "port": 0, "router": true })
+    end if
+
+    vulns = shared_process_scan(shell, targets, metaxploit, remote_decrypt, cc_server, "/home/guest/collecting")
+    target_groups = shared_targets_group_by(targets)
+
+    print(vulns)
+    print(target_groups)
+    print(target_local_ip)
+    print(mission_target)
+
+    // 1. stage scan all file, computer exploit on all target
+    for t in targets
+        for fields in vulns
+            if ["file", "computer"].indexOf(fields[4]) != null and fields[0] == t.lib_name and fields[1] == t.version then
+
+                shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                    return null
+                end if
+
+            end if
+        end for
+    end for
+
+    // 2. stage mission targets
+    if target_groups.hasIndex(mission_target) then
+        tip = mission_target
+        selected = target_groups[tip]
+        print("X")
+        for t in selected
+            for fields in vulns
+                if ["unknow"].indexOf(fields[4]) != null and fields[0] == t.lib_name and fields[1] == t.version then
+
+                    shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                    if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                        return null
+                    end if
+
+                end if
+            end for
+        end for
+
+        counter = 2
+        while counter > 0
+            counter = counter - 1
+
+            shells = shared_has_shell_to_target(tip, shells)
+            user = shared_has_user_to_target(tip, credentials)
+            sshs = shared_has_ssh_to_target(tip, targets)
+
+            shared_decrypt_if_needed(user, local_shell, crypto, metaxploit, remote_decrypt, cc_server)
+
+            // use shell and escalate
+            if user and shells.len > 0 then
+
+                for sh in shells
+                    esh = shared_shell_escalate(sh.shell, user.un, user.pwd)
+                    if typeof(esh) == "shell" then
+                        shared_search_passwords(result, credentials, sh.target.pip, sh.target.lip)
+
+                        shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                        if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                            return null
+                        end if
+                    end if
+                end for
+
+                return null
+                
+            // can connect to ssh and extract
+            else if user and sshs.len > 0 then
+                for ssh in sshs
+                    result = shell.connect_service(ssh.pip, ssh.port, user.un, user.pwd, "ssh")
+                    if typeof(result) == "shell" then
+                        shared_search_passwords(result, credentials, ssh.pip, ssh.lip)
+
+                        shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                        if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                            return null
+                        end if
+                    end if
+                end for
+
+                return null
+
+            //try shell vulns and check again
+            else if user then
+                for t in selected
+                    for fields in vulns
+                        if ["shell"].indexOf(fields[4]) != null and fields[0] == t.lib_name and fields[1] == t.version then
+
+                            shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                            if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                                return null
+                            end if
+
+                        end if
+                    end for
+                end for
+
+            // nothing to do or social engineering - not implemented
+            else
+                //return null
+                print("GG?")
+            end if
+
+        end while
+
+    end if
+
+    // 3. stage objective -> enter to server/router
+    if target_groups.hasIndex(target_local_ip) then
+        tip = target_local_ip
+        selected = target_groups[tip]
+
+        print("Y")
+
+        if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+            return null
+        end if
+        
+        counter = 2
+        while counter > 0
+            counter = counter - 1
+            shells = shared_has_shell_to_target(tip, shells)
+            user = shared_has_user_to_target(tip, credentials)
+            sshs = shared_has_ssh_to_target(tip, targets)
+
+            shared_decrypt_if_needed(user, local_shell, crypto, metaxploit, remote_decrypt, cc_server)
+
+            if user and shells.len > 0 then
+                // todo implement remote?
+                break
+            else if user and sshs.len > 0 then
+                // todo implement remote?
+                break
+            else
+                for t in selected
+                    for fields in vulns
+                        if ["unknow"].indexOf(fields[4]) != null and fields[0] == t.lib_name and fields[1] == t.version then
+        
+                            shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                            if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                                return null
+                            end if
+        
+                        end if
+                    end for
+                end for
+
+                for t in selected
+                    for fields in vulns
+                        if ["shell"].indexOf(fields[4]) != null and fields[0] == t.lib_name and fields[1] == t.version then
+
+                            shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                            if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                                return null
+                            end if
+
+                        end if
+                    end for
+                end for
+
+            end if
+        end while
+
+
+     end if
+
+     // 4. objective -> enter to network
+     for k in target_groups.indexes
+        if k == target_local_ip or k == mission_target then continue
+        tip = k
+        selected = target_groups[tip]
+
+        if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+            return null
+        end if
+        
+        counter = 2
+        while counter > 0
+            counter = counter - 1
+
+            shells = shared_has_shell_to_target(tip, shells)
+            user = shared_has_user_to_target(tip, credentials)
+            sshs = shared_has_ssh_to_target(tip, targets)
+
+            shared_decrypt_if_needed(user, local_shell, crypto, metaxploit, remote_decrypt, cc_server)
+
+            if user and shells.len > 0 then
+                // todo implement remote?
+                break
+            else if user and sshs.len > 0 then
+                // todo implement remote?
+                break
+            else
+
+                for t in selected
+                    for fields in vulns
+                        if ["unknow"].indexOf(fields[4]) != null and fields[0] == t.lib_name and fields[1] == t.version then
+        
+                            shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                            if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                                return null
+                            end if
+        
+                        end if
+                    end for
+                end for
+
+                for t in selected
+                    for fields in vulns
+                        if ["shell"].indexOf(fields[4]) != null and fields[0] == t.lib_name and fields[1] == t.version then
+
+                            shared_overflow_item(metaxploit, t, fields, remote_decrypt, modified, credentials, shells)
+                            if shared_mission_credential_has_solution(mission_target, mission_user, credentials, local_shell, crypto, metaxploit, remote_decrypt, cc_server) then
+                                return null
+                            end if
+
+                        end if
+                    end for
+                end for
+
+            end if
+        end while
+
+     end for
+
+    return null
+
+end function
+
+shared_targets_group_by = function(targets)
+    result = {}
+    for t in targets
+        if not result.hasIndex(t.lip) then
+            result[t.lip] = []
+        end if
+        result[t.lip].push(t)        
+    end for
+    return result
+end function
+
+shared_has_shell_to_target = function(target_ip, shells)
+    result = []
+    for s in shells
+        if s.target.lip == target_ip then result.push(s)
+    end for
+    return result
+end function
+
+shared_has_ssh_to_target = function(target_ip, targets)
+    result = []
+    for t in targets
+        if t.lib_name == "libssh.so" and t.lip == target_ip then result.push(t)
+    end for
+    return result
+end function
+
+shared_has_user_to_target = function(target_ip, credentials, allow_root = true)
+    if allow_root and credentials.hasIndex("root") then return credentials["root"]
+    for k in credentials.indexes
+        u = credentials[k]
+        if u.type == "user" and u.lip == target_ip then return u
+    end for
+end function
+
+shared_decrypt_if_needed = function(user, shell, crypto, metaxploit, remote_decrypt, cc_server)
+    if user then
+        request = { user.un: user }
+        shared_process_password(shell, crypto, remote_decrypt, cc_server, "/home/guest/time1", request)
+    end if
+end function
+
+shared_mission_credential_has_solution = function(target_ip, target_user, credentials, shell, crypto, metaxploit, remote_decrypt, cc_server)
+
+    user = shared_has_user_to_target(target_ip, credentials, target_user == null)
+    if user then 
+        shared_decrypt_if_needed(user, shell, crypto, metaxploit, remote_decrypt, cc_server)
+        return [ user.un, user.pwd ]
+    end if
+
+    return null
+end function
+
+process_mission_credential = function(mailbox, args)
+
+    cc_server = ["start", "69.54.9.95", "26"]
+    remote_decrypt = true
+    crypto = null
+    shell = get_shell()
+    computer = shell.host_computer
+    credentials = {}
+    shells = []
+    modified = []
+    target_public_ip = null
+    target_local_ip = null
+    target_user = null
+
+    if args.len < 5 then
+        target_user = null
+        target_public_ip = args[0]
+        target_local_ip = args[1]
+    else
+        target_user = args[0]
+        target_public_ip = args[1]
+        target_local_ip = args[2]
+    end if
+    
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
+
+    if computer.public_ip == target_public_ip then
+        target_public_ip = target_local_ip
+    end if
+
+    process_mission_credential_letmein(shell, target_public_ip, credentials, shells, target_local_ip, target_user, shell, crypto, metaxploit, remote_decrypt, cc_server, modified)
+
+    solution = shared_mission_credential_has_solution(target_local_ip, target_user, credentials, shell, crypto, metaxploit, remote_decrypt, cc_server)
+    if solution then
+        print("SOLUTION!!!")
+        print(solution.join(" "))
+        print(args[-2])
+        result = mailbox.send(args[-2], "Mission Contract", solution.join(" "))
+        print(result)
+        if typeof(result) == "string" then print(result)
+    end if
+
+end function
+
+process_mission = function(args)
+    if args.len == 0 then exit("Missing parameters.")
+
+    mission_type = args[0]
+    processed_missions = {}
+    
+    mailbox = mail_login("", "")
+    if typeof(mailbox) != "MetaMail" then exit(mailbox)
+
+    while true
+        details = shared_mail_last_mission(mailbox, mission_type)
+        if details != null and details.len > 1 and not processed_missions.hasIndex(details[-1]) then
+            processed_missions[details[-1]] = true
+
+            if mission_type == "credential" and details.len < 3 then continue
+
+            print("New mission from " + details[-2] + " details = " + details.join(" "))
+            process_mission_credential(mailbox, details)
+        end if
+
+        print()
+        print("I'm hungry!")
+        wait(3)
+    end while
 
 end function
 
@@ -1821,5 +2307,7 @@ commands.sniffer = @process_sniffer
 commands.credentials = @process_credentials
 commands.nettree = @process_nettree
 commands.routing = @process_routing
+commands.mission = @process_mission
 
 if commands.hasIndex(command) then commands[command](args)
+
