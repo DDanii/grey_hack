@@ -95,9 +95,12 @@ scan_facade = function(metaxploit, sh, payload, database, args, lsh)
     while index < args.len
         if args[index] == "-f" then
             optional_scanning = false
-        else if is_valid_ip(args[index]) and index + 1 < args.len then 
+        else if is_valid_ip(args[index]) and index + 1 < args.len then
+            log_append("Scan requested = " + args[index] + " " + args[index + 1])
             libs.push(remote_launch(sh, payload, "dump " + args[index] + " " + args[index + 1]))
+            index = index + 1
         else
+            log_append("Scan requested = " + args[index])
             libs.push(remote_launch(sh, payload, "load " + args[index]))
         end if
         index = index + 1
