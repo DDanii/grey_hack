@@ -1,6 +1,6 @@
 // TODO: need some update mechanic for remote computers
 
-shared_route_next_target = function(path)
+shared_routing_blocker = function(shell, path)
 	shell = get_shell()
 	i = path.len - 1
 	while i >= 0
@@ -59,6 +59,41 @@ shared_routing = function()
     end while
 
 	return routes
+end function
+
+process_routing = function(args)
+    if args.len == 0 then exit("Usage: " + program_path.split("/")[-1] + " [target_ip (source_ip)]")
+
+    shell = get_shell()
+    source_ip = shell.host_computer.local_ip
+    target_ip = args[0]
+
+    if not shell.host_computer.is_network_active then exit("No network access.")
+    if args.len > 1 then source_ip = args[1]
+    if not is_valid_ip(target_ip) or not is_lan_ip(target_ip) then exit("Target ip must be valid and local address.")
+    if not is_valid_ip(source_ip) or not is_lan_ip(source_ip) then exit("Source ip must be valid and local address.")
+
+    if source_ip != shell.host_computer.local_ip then
+        print("Warning: We cannot check reachability when the source IP is set.")
+    end if
+
+    routing = shared_routing()
+    path_to_target = shared_route_build_path(routing, target_ip)
+    path_to_source = shared_route_build_path(routing, source_ip)
+    path_from_source_to_target = shared_route_merge_path(path_to_source, path_to_target)
+
+    print("Path between the source and target computer:")
+    print(path_from_source_to_target.join(" -> "))
+
+    if source_ip == shell.host_computer.local_ip then
+        first_blocking_ip = shared_routing_blocker(shell, path_from_source_to_target)
+        if first_blocking_ip == target_ip then
+            print("Target reachable.")
+        else
+            print("Connection blocked by: " + first_blocking_ip)
+        end if
+    end if
+
 end function
 
 shared_ask_number = function(label, min, max)
@@ -506,6 +541,70 @@ shared_get_executable = function(shell, cmd)
         
     end if
     return null
+end function
+
+shared_nettree_tree_type = function(router, device)
+    switch = get_switch(device)
+    if switch then return "switch"
+    r = get_router(device)
+    if r then return "router"
+    ports = router.device_ports(device)
+    if ports == null or typeof(ports) == "string" then return "unknow"
+    if ports.len == 0 then return "computer"
+    for p in ports
+        service = router.port_info(p)
+        if service.indexOf("cam ") >= 0 then return "camera"
+    end for
+    return "server"
+end function
+
+shared_nettree_print = function(router, indent, parent, visited, columns)
+    label = router.local_ip
+    type = shared_nettree_tree_type(router, router.local_ip)
+
+    if visited.hasIndex(router.local_ip) then return
+    visited[router.local_ip] = true
+
+    if parent == null then
+        columns.push( [label, type] )
+    else
+        columns.push( [indent + "+- " + label, type] )
+    end if
+
+    devices = router.devices_lan_ip
+    childs = []
+    for d in devices
+        r = get_router(d)
+        if r == null then 
+            type = shared_nettree_tree_type(router, d)
+            columns.push( [indent + "+- " + d, type] )
+        else if r.local_ip != router.local_ip then 
+            childs.push(r)
+        end if
+    end for
+    
+    for r in childs
+        shared_nettree_print(r, indent + "   ", router, visited, columns)
+    end for
+end function
+
+process_nettree = function(args)
+    router = get_router()
+    public_ip = router.public_ip
+    columns = []
+    shared_nettree_print(router, "", null, {}, columns)
+
+    max = 0
+    for c in columns
+        if max < c[0].len then max = c[0].len
+    end for
+
+    print(public_ip)
+    print((" " * (public_ip.len / 2) ) + "|")
+    for c in columns
+        c[0] = c[0] + " " * (max - c[0].len)
+        print(c.join("  "))
+    end for
 end function
 
 process_file = function(args)
@@ -1367,7 +1466,7 @@ process_guided_hack = function(args)
         path1 = shared_route_build_path(routes, computer.local_ip)
         path2 = shared_route_build_path(routes, ip)
         path3 = shared_route_merge_path(path1, path2)
-        next_target = shared_route_next_target(path3)
+        next_target = shared_routing_blocker(shell, path3)
 
         print("Possible next target = " + next_target)
         if shared_simple_yes_or_no("Continue? (y/n)") == false then
@@ -1720,5 +1819,7 @@ commands.whois = @process_whois
 commands.smtp = @process_smtp
 commands.sniffer = @process_sniffer
 commands.credentials = @process_credentials
+commands.nettree = @process_nettree
+commands.routing = @process_routing
 
 if commands.hasIndex(command) then commands[command](args)
