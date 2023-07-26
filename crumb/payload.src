@@ -22,6 +22,8 @@ shared_mail_last_mission = function(mailbox, type)
 
     types = {
         "credential": "The client wants the login credentials of",
+        "delete": "The client wants you to delete a file",
+        "get": "The client wants you to enter a remote machine and get a file"
     }
 
     if not mailbox then return []
@@ -254,14 +256,12 @@ shared_shell_run_and_hit = function(shell, program, shell_script, parameters)
         f.set_content("")
         f.move(parent_path(f.path), ".null")
         if not error then print(error)
-        // f.delete() // WARNING: 
     end if
 
     goc = get_custom_object()
     goc.result = null
     shell.launch(program, parameters)
     f = shell.host_computer.File(program)
-    // if f then f.delete() // WARNING: 
     return goc.result
 end function
 
@@ -1326,7 +1326,7 @@ process_escalate = function(args)
 
     shell = get_shell()
     computer = shell.host_computer
-    cc_server = ["start", "69.54.9.95", "26"]
+    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
     remote_decrypt = true
     crypto = null
 
@@ -1481,7 +1481,7 @@ process_guided_hack = function(args)
     ip = args[0]
     is_local_ip = is_lan_ip(ip)
     router = null
-    cc_server = ["start", "69.54.9.95", "26"]
+    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
     remote_decrypt = true
     shell = get_shell()
     computer = shell.host_computer
@@ -1605,7 +1605,7 @@ process_guided_hack = function(args)
 end function
 
 process_credentials = function(args)
-    cc_server = ["start", "69.54.9.95", "26"]
+    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
     remote_decrypt = true
     shell = get_shell()
     computer = shell.host_computer
@@ -1963,7 +1963,7 @@ end function
 
 process_mission_credential = function(mailbox, args)
 
-    cc_server = ["start", "69.54.9.95", "26"]
+    cc_server = ["start", "__CC_SERVER_IP_ADDRESS__", "__CC_SERVER_PORT_NUMBER__"]
     remote_decrypt = true
     crypto = null
     shell = get_shell()
@@ -1997,12 +1997,11 @@ process_mission_credential = function(mailbox, args)
 
     solution = shared_mission_credential_has_solution(target_local_ip, target_user, credentials, shell, crypto, metaxploit, remote_decrypt, cc_server)
     if solution then
-        print("SOLUTION!!!")
+        print("Solution Found")
+        print(args.join(" "))
         print(solution.join(" "))
-        print(args[-2])
-        result = mailbox.send(args[-2], "Mission Contract", solution.join(" "))
-        print(result)
-        if typeof(result) == "string" then print(result)
+
+        // result = mailbox.send(args[-2], "Mission Contract", solution.join(" "))
     end if
 
 end function
@@ -2013,57 +2012,68 @@ process_mission = function(args)
     mission_type = args[0]
     processed_missions = {}
     
-    mailbox = mail_login("", "")
+    mailbox = mail_login("__MAILBOX_USERNAME__", "__MAILBOX_PASSWORD__")
     if typeof(mailbox) != "MetaMail" then exit(mailbox)
 
-    while true
-        details = shared_mail_last_mission(mailbox, mission_type)
-        if details != null and details.len > 1 and not processed_missions.hasIndex(details[-1]) then
-            processed_missions[details[-1]] = true
+    details = shared_mail_last_mission(mailbox, mission_type)
+    if details != null and details.len > 1 and not processed_missions.hasIndex(details[-1]) then
+        processed_missions[details[-1]] = true
 
-            if mission_type == "credential" and details.len < 3 then continue
+        if mission_type == "credential" and details.len < 3 then continue
 
-            print("New mission from " + details[-2] + " details = " + details.join(" "))
-            process_mission_credential(mailbox, details)
-        end if
-
-        print()
-        print("I'm hungry!")
-        wait(3)
-    end while
+        print("New mission from " + details[-2] + " details = " + details.join(" "))
+        process_mission_credential(mailbox, details)
+    end if
 
 end function
 
 process_task = function(args)
     if args.len == 0 then exit()
+    shell = get_shell()
+    shared_task(shell, args)
+end function
+
+shared_task = function(shell, args)
+    if args.len == 0 then exit()
+
     command = args[0]
     args = args[1:]
 
     if command == "start" then
-        task_start(args)
+        task_start(shell, args)
     else if command == "stop" then
-        task_stop(args)
+        task_stop(shell, args)
     else if command == "clear" then
-        task_clear(args)
+        task_clear(shell, args)
     else if command == "add" then
-        task_add(args)
+        task_add(shell, args)
     end if
 end function
 
-task_start = function(args)
+shared_is_remote = function(shell)
+    local = get_shell().host_computer
+    c = shell.host_computer
+    return not (local.public_ip == c.public_ip and local.local_ip == c.local_ip)
+end function
+
+task_start = function(shell, args)
     if args.len < 2 then exit("Invalid arguments.")
     if not is_valid_ip(args[0]) then exit("Invalid IP address.")
 
-    metaxploit = include_lib("/lib/metaxploit.so")
-    if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    if shared_is_remote(shell) then
+        metaxploit = shared_shell_crumb(shell, "metaxploit")
+    else
+        metaxploit = include_lib("/lib/metaxploit.so")
+        if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
+    end if
+
     if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
 
     r = metaxploit.rshell_client(args[0], args[1].to_int, "tasks")
     if r != true then print(r)
 end function
 
-task_stop = function(args)
-    shell = get_shell()
+task_stop = function(shell, args)
     computer = shell.host_computer
     process = computer.show_procs.split(char(10))[1:]
     for p in process
@@ -2074,9 +2084,8 @@ task_stop = function(args)
     end for
 end function
 
-task_clear = function(args)
+task_clear = function(shell, args)
     path_tasks = "/home/guest/tasks.txt"
-    shell = get_shell()
     computer = shell.host_computer
     f = computer.File(path_tasks)
     if f then
@@ -2092,13 +2101,12 @@ task_clear = function(args)
     end for
 end function
 
-task_add = function(args)
+task_add = function(shell, args)
     if args.len == 0 then return
 
     command = args[0]
     args = args[1:]
     path_tasks = "/home/guest/tasks.txt"
-    shell = get_shell()
 
     if command == "upload" then
         if args.len == 0 then exit("Invalid arguments")
