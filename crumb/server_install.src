@@ -30,23 +30,23 @@ end function
 
 rsshd_installer = function(sh, repo)
 
-    rshelld = rsshd_installer_jump(sh).librshell
+    lr = rsshd_installer_jump(sh)
 
-    if not rshelld then
+    if lr.hasIndex("librshell") then
         sh.launch("/bin/apt-get", "addrepo " + repo)
         sh.launch("/bin/apt-get", "update")
         sh.launch("/bin/apt-get", "install librshell.so")
         sh.launch("/bin/apt-get", "install metaxploit.so")
         sh.launch("/bin/apt-get", "delrepo " + repo)
         sh.launch("/bin/apt-get", "update")
-        rshelld = rsshd_installer_jump(sh).librshell
+        lr = rsshd_installer_jump(sh)
     end if
 
-    if not rshelld then exit("Error: Missing librshell.so library in the /lib path or the current folder")
+    if not lr.hasIndex("librshell") then exit("Error: Missing librshell.so library in the /lib path or the current folder")
     
-    output = rshelld.start_service()
+    output = lr.librshell.start_service()
 
-    return rshelld
+    return lr.librshell
 end function
 
 update_local = function(sh)
@@ -58,6 +58,7 @@ connect_to_bounce = function(stack, ip, port, user, pass)
     rsh = stack[-1].connect_service(ip, port.to_int, user, pass, "ssh")
     if typeof(rsh) == "string" then exit("Can't connect to " + ip + "(" + rsh + ").") else stack.push(rsh)
     wipe_system_log(stack[-1])
+    if stack.len > 2 then wipe_system_log(stack[-2]) // delete routed entries
 end function
 
 connect_to_bounces = function(stack, file)
@@ -76,5 +77,5 @@ end function
 
 signal_facade = function(sh, args)
     if (args.len == 0) then return
-    mkfile(sh, path)
+    mkfile(sh, args[0])
 end function

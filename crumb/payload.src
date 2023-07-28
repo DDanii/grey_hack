@@ -23,7 +23,7 @@ shared_mail_last_mission = function(mailbox, type)
     types = {
         "credential": "The client wants the login credentials of",
         "delete": "The client wants you to delete a file",
-        "get": "The client wants you to enter a remote machine and get a file"
+        "get": "The client wants you to enter a remote machine and get a file",
     }
 
     if not mailbox then return []
@@ -2019,7 +2019,7 @@ process_mission = function(args)
     if details != null and details.len > 1 and not processed_missions.hasIndex(details[-1]) then
         processed_missions[details[-1]] = true
 
-        if mission_type == "credential" and details.len < 3 then continue
+        if mission_type == "credential" and details.len < 3 then return
 
         print("New mission from " + details[-2] + " details = " + details.join(" "))
         process_mission_credential(mailbox, details)
