@@ -3,6 +3,7 @@ tasks = "/home/guest/tasks.txt"
 payload = "/home/guest/payload"
 uploads = "/home/guest/Downloads"
 exploits = "/home/guest/E"
+passwords = "/home/guest/P/passwords.txt"
 logs = "/home/guest/L/test.txt"
 bounce_file = parent_path(program_path) + "/bounce.txt"
 stack = [get_shell()]
@@ -35,6 +36,7 @@ rmx = rsshd_installer_jump(server).metaxploit
 
 log_setup(stack[0], logs)
 scan_setup(stack[0], exploits)
+passwords_setup(stack[0], passwords)
 
 print("Waiting new commands...")
 while true

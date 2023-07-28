@@ -57,6 +57,7 @@ end function
 connect_to_bounce = function(stack, ip, port, user, pass)
     rsh = stack[-1].connect_service(ip, port.to_int, user, pass, "ssh")
     if typeof(rsh) == "string" then exit("Can't connect to " + ip + "(" + rsh + ").") else stack.push(rsh)
+    wipe_system_log(stack[-1])
 end function
 
 connect_to_bounces = function(stack, file)

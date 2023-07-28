@@ -18,8 +18,8 @@ parse_ssh_parameters = function(v)
 end function
 
 search_until = function(text, pos, ch)
-	while pos < textc.len
-		if text[i] == ch then return pos
+	while pos < text.len
+		if text[pos] == ch then return pos
 		pos = pos + 1
 	end while
 	return null
@@ -77,4 +77,13 @@ arrays_join = function(array_of_array, field_separator = " ")
 		output = output + a.join(field_separator) + char(10)
 	end for
 	return output
+end function
+
+wipe_system_log = function(sh)
+	f = sh.host_computer.File("/var/system.log")
+	if not f then return
+	sh.host_computer.touch("/var/", "system.log.txt")
+	f = sh.host_computer.File("/var/system.log.txt")
+	if not f then return
+	f.move("/var", "system.log")
 end function
