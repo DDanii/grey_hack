@@ -146,14 +146,7 @@ exploit_db_facade = function(sh, payload, database, args, lsh)
         end if
     end while
 
-    sh.host_computer.touch(parent_path(payload), "vulnerabilities.txt")
-    f = sh.host_computer.File(parent_path(payload) + "/vulnerabilities.txt")
-    if not f then return
-    output = ""
-    for v in vulns
-        output = output + v.join(" ") + char(10)
-    end for
-    f.set_content(output)
+    write_to_file(parent_path(payload) + "/vulnerabilities.txt", arrays_join(vulns), sh)
 end function
 
 exploit_db_update_facade = function(sh, payload, database, args, lsh)    

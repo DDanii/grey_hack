@@ -38,9 +38,25 @@ shared_print_tree = function(router, indent, parent, visited, columns)
         end if
     end for
     
+    ports = router.used_ports()
+    if ports and typeof(ports) == "list" then
+        for p in ports
+            d = p.get_lan_ip()
+            if router.local_ip == d then continue
+            r = get_router(d)
+            if r == null then 
+                type = shared_print_tree_type(router, d)
+                columns.push( [indent + "+- " + d, type] )
+            else if r.local_ip != router.local_ip then 
+                childs.push(r)
+            end if
+        end for
+    end if
+
     for r in childs
         shared_print_tree(r, indent + "   ", router, visited, columns)
     end for
+
 end function
 
 router = get_router()

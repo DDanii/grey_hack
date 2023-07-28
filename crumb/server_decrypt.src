@@ -41,8 +41,7 @@ decrypt_facade = function(crypto, sh, payload, args)
 
     passwords = decrypt(crypto, encrypted)
 
-    sh.host_computer.touch(parent_path(payload), "passwords.txt")
-    f = sh.host_computer.File(parent_path(payload) + "/passwords.txt")
-    if not f then return
-    f.set_content(passwords.join(char(10)))
+    if save_to_file then
+        write_to_file(parent_path(payload) + "/passwords.txt", passwords.join(char(10)), sh)
+    end if
 end function

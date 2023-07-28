@@ -6,7 +6,7 @@ exploits = "/home/guest/E"
 logs = "/home/guest/L/test.txt"
 bounce_file = parent_path(program_path) + "/bounce.txt"
 stack = [get_shell()]
-repository_ip = get_repo_address(stack[-1])
+repositories = get_repo_address(stack[-1])
 
 crypto = include_lib("/lib/crypto.so")
 if not crypto then crypto = include_lib(current_path + "/crypto.so")
@@ -16,23 +16,21 @@ metaxploit = include_lib("/lib/metaxploit.so")
 if not metaxploit then metaxploit = include_lib(current_path + "/metaxploit.so")
 if not metaxploit then exit("Error: Can't find metaxploit library in the /lib path or the current folder")
 
-if not stack[-1].host_computer.File(payload) then exit("Can't find payload.")
-
 if params.len > 0 then bounce_file = params[0]
 if not stack[0].host_computer.File(bounce_file) then exit("Can't find connections file.")
 
-print("Repository = " + repository_ip[:5])
+print("Repository = " + repositories[0])
 update_local(stack[0])
 
 print("Connections from " + bounce_file)
-connect_to_bounces(stack, payload, bounce_file)
+connect_to_bounces(stack, bounce_file)
 
 if stack.len == 1 then exit("Stack is empty.")
 print("Connections = " + (stack.len - 1))
 
 // Last connect is my rshell server
 server = stack[-1]
-rs = rsshd_installer(server, payload, repository_ip)
+rs = rsshd_installer(server, repositories[0])
 rmx = rsshd_installer_jump(server).metaxploit
 
 log_setup(stack[0], logs)

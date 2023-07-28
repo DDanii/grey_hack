@@ -17,25 +17,32 @@ parse_ssh_parameters = function(v)
 	return [x[2], x[3], x[-2], x[-1]]
 end function
 
+search_until = function(text, pos, ch)
+	while pos < textc.len
+		if text[i] == ch then return pos
+		pos = pos + 1
+	end while
+	return null
+end function
+
 get_repo_address = function(sh)
+	result = []
 	f = sh.host_computer.File("/etc/apt/sources.txt")
 	if not f then return null
 	c = f.get_content()
 	i = 0
 	while i < c.len
 		if c[i] >= "0" and c[i] <= "9" then
-			j = i + 1
-			while j < c.len
-				if c[j] == """" then
-					return c[i: j - 1]
-				end if
-				j = j + 1
-			end while
-			break
+			j = search_until(c, i + 1, """")
+			if not j then break
+			result.push(c[i: j])
+			j = search_until(c, j, ",")
+			if not j then break
+			i = j
 		end if
 		i = i + 1
 	end while 
-	return null
+	return result
 end function
 
 mkdir = function(shell, path)
@@ -46,10 +53,28 @@ mkdir = function(shell, path)
 		if not f then shell.host_computer.create_folder(parent, p)
 		parent = parent + p + "/"
 	end for
+	return shell.host_computer.File(path)
 end function
 
 mkfile = function(shell, path)
 	mkdir(shell, parent_path(path))
 	shell.host_computer.touch(parent_path(path), path.split("/")[-1])
     return shell.host_computer.File(path)
+end function
+
+write_to_file = function(path, content, shell)
+	if typeof(path) == "string" then
+		shell.host_computer.touch(parent_path(path), path.split("/")[-1])
+		f = shell.host_computer.File(path)
+	end if
+	if not f then return false
+	return f.set_content(content)
+end function
+
+arrays_join = function(array_of_array, field_separator = " ")
+	output = ""
+	for a in array_of_array
+		output = output + a.join(field_separator) + char(10)
+	end for
+	return output
 end function

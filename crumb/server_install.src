@@ -10,8 +10,7 @@ rsshd_installer_jump = function(shell)
     source = program + ".src"
     f = shell.host_computer.File(program)
     if not f then
-        shell.host_computer.touch(parent_path(source), source.split("/")[-1])
-        f = shell.host_computer.File(source)
+        f = mkfile(shell, source)
         if not f then return null
         f.set_content(shell_script.join(char(10)))
         error = shell.build(source, parent_path(source))
@@ -29,7 +28,7 @@ rsshd_installer_jump = function(shell)
 
 end function
 
-rsshd_installer = function(sh, payload, repo)
+rsshd_installer = function(sh, repo)
 
     rshelld = rsshd_installer_jump(sh).librshell
 
@@ -37,6 +36,7 @@ rsshd_installer = function(sh, payload, repo)
         sh.launch("/bin/apt-get", "addrepo " + repo)
         sh.launch("/bin/apt-get", "update")
         sh.launch("/bin/apt-get", "install librshell.so")
+        sh.launch("/bin/apt-get", "install metaxploit.so")
         sh.launch("/bin/apt-get", "delrepo " + repo)
         sh.launch("/bin/apt-get", "update")
         rshelld = rsshd_installer_jump(sh).librshell
@@ -54,12 +54,12 @@ update_local = function(sh)
     sh.launch("/bin/apt-get", "upgrade")
 end function
 
-connect_to_bounce = function(stack, payload, ip, port, user, pass)
+connect_to_bounce = function(stack, ip, port, user, pass)
     rsh = stack[-1].connect_service(ip, port.to_int, user, pass, "ssh")
     if typeof(rsh) == "string" then exit("Can't connect to " + ip + "(" + rsh + ").") else stack.push(rsh)
 end function
 
-connect_to_bounces = function(stack, payload, file)
+connect_to_bounces = function(stack, file)
     f = stack[-1].host_computer.File(file)
     if not f then exit("Can't open connection file.")
     connections = f.get_content().split("\n")
@@ -69,12 +69,11 @@ connect_to_bounces = function(stack, payload, file)
         if args[0] != "ssh" then continue
         args = parse_ssh_parameters(c)
         if not args then exit("Invalid connection string.")
-        connect_to_bounce(stack, payload, args[0], args[1], args[2], args[3])
+        connect_to_bounce(stack, args[0], args[1], args[2], args[3])
     end for
 end function
 
 signal_facade = function(sh, args)
     if (args.len == 0) then return
-    path = args[0]
-    sh.host_computer.touch(parent_path(path), path.split("/")[-1])
+    mkfile(sh, path)
 end function

@@ -45,6 +45,18 @@ shared_routing = function()
             r = get_router(d)
             if r then open.push(r)
         end for
+
+		ports = router.used_ports()
+		if not ports or typeof(ports) == "string" then continue
+		for p in ports
+			d = p.get_lan_ip()
+			if router.local_ip == d then continue
+			if visited.hasIndex(d) then continue
+            routes[d] = router.local_ip
+			visited[d] = true
+            r = get_router(d)
+            if r then open.push(r)
+		end for
     end while
 
 	return routes
