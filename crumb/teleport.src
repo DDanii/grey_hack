@@ -1,0 +1,64 @@
+
+parse_ssh_parameters = function(v)
+	x = v.split(" ")
+	if x.len < 3 and x.indexOf("@") == null then return null
+	x = x + x[1].split("@")
+	return [x[2], x[3], x[-2], x[-1]]
+end function
+
+wipe_system_log = function(sh)
+	f = sh.host_computer.File("/var/system.log")
+	if not f then return
+	sh.host_computer.touch("/var/", "system.log.txt")
+	f = sh.host_computer.File("/var/system.log.txt")
+	if not f then return
+	f.move("/var", "system.log")
+end function
+
+connect_to_bounce = function(stack, ip, port, user, pass)
+    rsh = stack[-1].connect_service(ip, port.to_int, user, pass, "ssh")
+    if typeof(rsh) == "string" then exit("Can't connect to " + ip + "(" + rsh + ").") else stack.push(rsh)
+    wipe_system_log(stack[-1])
+    if stack.len > 2 then wipe_system_log(stack[-2]) // delete routed entries
+end function
+
+connect_to_bounces = function(stack, file)
+    f = stack[-1].host_computer.File(file)
+    if not f then exit("Can't open connection file.")
+    connections = f.get_content().split("\n")
+    for c in connections
+        args = c.split(" ")
+        if args.len < 3 then continue
+        if args[0] != "ssh" then continue
+        args = parse_ssh_parameters(c)
+        if not args then exit("Invalid connection string.")
+        connect_to_bounce(stack, args[0], args[1], args[2], args[3])
+    end for
+end function
+
+process_cleanup = function(args)
+    path = current_path + "/teleport.txt"
+    if args.len > 0 then path = args[0]
+
+    stack = [get_shell()]
+    connect_to_bounces(stack, path)
+end function
+
+process_start_terminal = function(args)
+    path = current_path + "/teleport.txt"
+    if args.len > 0 then path = args[0]
+
+    stack = [get_shell()]
+    connect_to_bounces(stack, path)
+    stack[-1].start_terminal()
+end function
+
+if params.len == 0 then exit()
+command = params[0]
+args = params[1:]
+
+commands = { }
+commands.cleanup = @process_cleanup
+commands.start_terminal = @process_start_terminal
+
+if commands.hasIndex(command) then commands[command](args)
