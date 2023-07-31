@@ -1,12 +1,82 @@
+// ssh user@password ip port
+// rshell pip lip
 
-parse_ssh_parameters = function(v)
+shared_crumb = function(shell, parameters)
+
+    shell_script = [
+        "result = null",
+        "if params.indexOf(""metaxploit"") == 0 then",
+        "result = include_lib(""/home/guest/metaxploit.so"")",
+        "if not result then result = include_lib(""/lib/metaxploit.so"")",
+        "end if",
+        "if params.indexOf(""status"") == 0 then",
+        "mx = include_lib(""/home/guest/metaxploit.so"")",
+        "if not mx then mx = include_lib(""/lib/metaxploit.so"")",
+        "result = {}",
+        "result[""active_user""] = active_user",
+        "result[""current_date""] = current_date",
+        "result[""current_path""] = current_path",
+        "result[""program_path""] = program_path",
+        "result[""user_bank_number""] = user_bank_number",
+        "result[""user_mail_address""] = user_mail_address",
+        "result[""home_dir""] = home_dir",
+        "result[""metaxploit""] = mx",
+        "end if",
+        "if params.indexOf(""shell"") == 0 and params.len > 2 then",
+        "result = get_shell(params[1], params[2])",
+        "end if",
+        "goc = get_custom_object()",
+        "goc.result = result",
+    ].join(char(10))
+
+    p = "/home/guest/crumb"
+    f = shell.host_computer.File(p)
+
+    if not f then
+        s = p + ".src"
+        shell.host_computer.touch(parent_path(s), s.split("/")[-1])
+        f = shell.host_computer.File(s)
+        if not f then return null
+        f.set_content(shell_script)
+        error = shell.build(s, parent_path(s))
+        f.set_content("")
+        f.move(parent_path(f.path), ".null")
+        if not error then print(error)
+    end if
+
+    goc = get_custom_object()
+    goc.result = null
+    shell.launch(p, parameters)
+    f = shell.host_computer.File(p)
+    return goc.result
+end function
+
+shared_install_to_target = function(lshell, rshell)
+    payload = "/home/guest/payload"
+    mxf = lshell.host_computer.File(parent_path(payload) + "/metaxploit.so")
+    if not mxf then mxf = lshell.host_computer.File("/lib/metaxploit.so")
+    if not mxf then print("Warrning: missing metaxploit.so")
+
+    lshell.scp(payload, parent_path(payload), rshell)
+    if mxf then lshell.scp(mxf.path, parent_path(payload), rshell)
+end function
+
+shared_simple_yes_or_no = function(label)
+    while true
+        k = user_input(label, false, true)
+        if k == "y" or k == "1" then return true
+        if k == "n" or k == "0" then return false
+    end while
+end function
+
+shared_parse_ssh = function(v)
 	x = v.split(" ")
 	if x.len < 3 and x.indexOf("@") == null then return null
 	x = x + x[1].split("@")
 	return [x[2], x[3], x[-2], x[-1]]
 end function
 
-wipe_system_log = function(sh)
+shared_wipe_system_log = function(sh)
 	f = sh.host_computer.File("/var/system.log")
 	if not f then return
 	sh.host_computer.touch("/var/", "system.log.txt")
@@ -15,25 +85,47 @@ wipe_system_log = function(sh)
 	f.move("/var", "system.log")
 end function
 
-connect_to_bounce = function(stack, ip, port, user, pass)
-    rsh = stack[-1].connect_service(ip, port.to_int, user, pass, "ssh")
-    if typeof(rsh) == "string" then exit("Can't connect to " + ip + "(" + rsh + ").") else stack.push(rsh)
-    wipe_system_log(stack[-1])
-    if stack.len > 2 then wipe_system_log(stack[-2]) // delete routed entries
+shared_connect_to_ssh = function(sh, args)
+    if args.len != 4 then exit("ssh: Invalid arguments.")
+    rsh = sh.connect_service(args[0], args[1].to_int, args[2], args[3], "ssh")
+    if typeof(rsh) != "shell" then exit("ssh: Can't connect to " + args[0] + "(" + rsh + ").")
+    return rsh
 end function
 
-connect_to_bounces = function(stack, file)
+shared_connect_to_rshell = function(sh, args, cb = null)
+    mx = shared_crumb(sh, "metaxploit")
+	shells = mx.rshell_server
+	if typeof(shells) == "string" or not shells then exit(shells)    
+    for s in shells
+        if s.host_computer.public_ip == args[1] and s.host_computer.local_ip == args[2] then return s
+    end for
+    exit("rshell: can't find shell: " + args[0] + " " + args[1])
+end function
+
+shared_create_connections = function(stack, file, cb)
     f = stack[-1].host_computer.File(file)
     if not f then exit("Can't open connection file.")
+
     connections = f.get_content().split("\n")
     for c in connections
+		if not c or c.len == 0 or c == " " then continue
+	    rsh = null
         args = c.split(" ")
-        if args.len < 3 then continue
-        if args[0] != "ssh" then continue
-        args = parse_ssh_parameters(c)
-        if not args then exit("Invalid connection string.")
-        connect_to_bounce(stack, args[0], args[1], args[2], args[3])
+        if args.len == 0 then continue
+        if args[0] == "ssh" then
+            rsh = shared_connect_to_ssh(stack[-1], shared_parse_ssh(c))
+        else if args[0] == "rshell" then
+            rsh = shared_connect_to_rshell(stack[-1], args)
+        end if
+        if not rsh then exit("Can't connect to target.")
+        stack.push(rsh)
+        cb(stack)
     end for
+end function
+
+process_cleanup_item = function(stack)
+    shared_wipe_system_log(stack[-1])
+    if stack.len > 2 then shared_wipe_system_log(stack[-2]) // delete routed entries
 end function
 
 process_cleanup = function(args)
@@ -41,7 +133,24 @@ process_cleanup = function(args)
     if args.len > 0 then path = args[0]
 
     stack = [get_shell()]
-    connect_to_bounces(stack, path)
+    shared_create_connections(stack, path, @process_cleanup_item)
+end function
+
+process_start_terminal_item = function(stack)
+    print("")
+    print("Connected: " + stack[-1].host_computer.local_ip + "/" + stack[-1].host_computer.public_ip)
+
+    if stack[-2].host_computer.File("/home/guest/payload") then
+        if shared_simple_yes_or_no("   Do you want to install the payload? (y/n)") then
+            shared_install_to_target(stack[-2], stack[-1])
+        end if
+    end if
+
+    if shared_simple_yes_or_no("    Do you want to clear log? (y/n)") then
+        shared_wipe_system_log(stack[-1])
+        if stack.len > 2 then shared_wipe_system_log(stack[-2]) // delete routed entries
+    end if
+
 end function
 
 process_start_terminal = function(args)
@@ -49,7 +158,7 @@ process_start_terminal = function(args)
     if args.len > 0 then path = args[0]
 
     stack = [get_shell()]
-    connect_to_bounces(stack, path)
+    shared_create_connections(stack, path, @process_start_terminal_item)
     stack[-1].start_terminal()
 end function
 

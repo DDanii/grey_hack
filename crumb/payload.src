@@ -241,18 +241,43 @@ shared_process_scan = function(shell, targets, metaxploit, remote, cc_server, si
     end if
 end function
 
-shared_shell_run_and_hit = function(shell, program, shell_script, parameters)
-    
-    f = shell.host_computer.File(program)
+shared_crumb = function(shell, parameters)
+    shell_script = [
+        "result = null",
+        "if params.indexOf(""metaxploit"") == 0 then",
+        "result = include_lib(""/home/guest/metaxploit.so"")",
+        "if not result then result = include_lib(""/lib/metaxploit.so"")",
+        "end if",
+        "if params.indexOf(""status"") == 0 then",
+        "mx = include_lib(""/home/guest/metaxploit.so"")",
+        "if not mx then mx = include_lib(""/lib/metaxploit.so"")",
+        "result = {}",
+        "result[""active_user""] = active_user",
+        "result[""current_date""] = current_date",
+        "result[""current_path""] = current_path",
+        "result[""program_path""] = program_path",
+        "result[""user_bank_number""] = user_bank_number",
+        "result[""user_mail_address""] = user_mail_address",
+        "result[""home_dir""] = home_dir",
+        "result[""metaxploit""] = mx",
+        "end if",
+        "if params.indexOf(""shell"") == 0 and params.len > 2 then",
+        "result = get_shell(params[1], params[2])",
+        "end if",
+        "goc = get_custom_object()",
+        "goc.result = result",
+    ].join(char(10))
+
+    p = "/home/guest/crumb"
+    f = shell.host_computer.File(p)
 
     if not f then
-        source = program + ".src"
-        source_name = source.split("/")[-1]
-        shell.host_computer.touch(parent_path(source), source_name)
-        f = shell.host_computer.File(source)
+        s = p + ".src"
+        shell.host_computer.touch(parent_path(s), s.split("/")[-1])
+        f = shell.host_computer.File(s)
         if not f then return null
         f.set_content(shell_script)
-        error = shell.build(source, parent_path(source))
+        error = shell.build(s, parent_path(s))
         f.set_content("")
         f.move(parent_path(f.path), ".null")
         if not error then print(error)
@@ -260,46 +285,17 @@ shared_shell_run_and_hit = function(shell, program, shell_script, parameters)
 
     goc = get_custom_object()
     goc.result = null
-    shell.launch(program, parameters)
-    f = shell.host_computer.File(program)
+    shell.launch(p, parameters)
+    f = shell.host_computer.File(p)
     return goc.result
 end function
 
-shared_shell_crumb = function(shell, parameters)
-
-shell_script = [
-"result = null",
-"if params.indexOf(""metaxploit"") == 0 then",
-"result = include_lib(""/home/guest/metaxploit.so"")",
-"if not result then result = include_lib(""/lib/metaxploit.so"")",
-"end if",
-"if params.indexOf(""status"") == 0 then",
-"mx = include_lib(""/home/guest/metaxploit.so"")",
-"if not mx then mx = include_lib(""/lib/metaxploit.so"")",
-"result = {}",
-"result[""active_user""] = active_user",
-"result[""current_date""] = current_date",
-"result[""current_path""] = current_path",
-"result[""program_path""] = program_path",
-"result[""user_bank_number""] = user_bank_number",
-"result[""user_mail_address""] = user_mail_address",
-"result[""home_dir""] = home_dir",
-"result[""metaxploit""] = mx",
-"end if",
-"if params.indexOf(""shell"") == 0 and params.len > 2 then",
-"result = get_shell(params[1], params[2])",
-"end if",
-"goc = get_custom_object()",
-"goc.result = result"].join(char(10))
-    return shared_shell_run_and_hit(shell, "/home/guest/crumb", shell_script, parameters)
-end function
-
 shared_shell_get_info = function(shell)
-    return shared_shell_crumb(shell, "status")
+    return shared_crumb(shell, "status")
 end function
 
 shared_shell_escalate = function(shell, user, passwd)
-    return shared_shell_crumb(shell, ["shell", user, passwd].join(" "))
+    return shared_crumb(shell, ["shell", user, passwd].join(" "))
 end function
 
 shared_wait_for_signal = function(shell, label, target)
